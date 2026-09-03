@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createPool } from "./index.js";
-import { insertInboundMessage, insertOutboundMessage } from "./queries.js";
+import {
+  closeStaleConversations,
+  getRecentMessageDirections,
+  insertInboundMessage,
+  insertOutboundMessage,
+  touchConversation,
+  updateConversationState,
+} from "./queries.js";
 
 // Deliberately not DATABASE_URL: pointed at Supabase, these tests would write
 // phantom rows into the production database.
@@ -67,5 +74,98 @@ test(
       [whatsappMessageId],
     );
     assert.deepEqual(rows[0], { direction: "outbound", source: "bot" });
+  },
+);
+
+test(
+  "returns recent message directions newest first",
+  { skip: testDatabaseUrl ? false : "set TEST_DATABASE_URL to run database tests" },
+  async (t) => {
+    const pool = createPool(testDatabaseUrl!);
+    const phone = "5500000000002";
+    const suffix = Date.now();
+
+    t.after(async () => {
+      await pool.query("delete from messages where phone = $1", [phone]);
+      await pool.end();
+    });
+
+    await insertInboundMessage(pool, {
+      whatsappMessageId: `in-${suffix}`,
+      phone,
+      type: "text",
+      content: "oi",
+      pushName: null,
+    });
+    await insertOutboundMessage(pool, {
+      whatsappMessageId: `out-${suffix}`,
+      phone,
+      content: "resposta",
+    });
+
+    const recent = await getRecentMessageDirections(pool, phone, 5);
+    assert.deepEqual(recent[0], { direction: "outbound", source: "bot" });
+    assert.deepEqual(recent[1], { direction: "inbound", source: "user" });
+  },
+);
+
+test(
+  "reopens a closed conversation with its partial data cleared",
+  { skip: testDatabaseUrl ? false : "set TEST_DATABASE_URL to run database tests" },
+  async (t) => {
+    const pool = createPool(testDatabaseUrl!);
+    const phone = "5500000000003";
+
+    t.after(async () => {
+      await pool.query("delete from conversations where phone = $1", [phone]);
+      await pool.end();
+    });
+
+    const created = await touchConversation(pool, phone);
+    assert.equal(created.state, "idle");
+
+    // Simulate a collection in progress that the sweeper then closes.
+    await updateConversationState(pool, phone, "collecting");
+    await pool.query(
+      `update conversations set partial_data = '{"ticket":{"summary":"x"}}'::jsonb,
+       last_interaction_at = now() - interval '48 hours' where phone = $1`,
+      [phone],
+    );
+
+    const closed = await closeStaleConversations(pool, 24);
+    assert.ok(closed >= 1);
+
+    const reopened = await touchConversation(pool, phone);
+    assert.equal(reopened.state, "idle", "a new message restarts the conversation");
+
+    const { rows } = await pool.query<{ partial_data: unknown }>(
+      "select partial_data from conversations where phone = $1",
+      [phone],
+    );
+    assert.deepEqual(rows[0]?.partial_data, {}, "stale context must not survive");
+  },
+);
+
+test(
+  "leaves active conversations untouched when sweeping",
+  { skip: testDatabaseUrl ? false : "set TEST_DATABASE_URL to run database tests" },
+  async (t) => {
+    const pool = createPool(testDatabaseUrl!);
+    const phone = "5500000000004";
+
+    t.after(async () => {
+      await pool.query("delete from conversations where phone = $1", [phone]);
+      await pool.end();
+    });
+
+    await touchConversation(pool, phone);
+    await updateConversationState(pool, phone, "collecting");
+    await closeStaleConversations(pool, 24);
+
+    const { rows } = await pool.query<{ state: string }>(
+      "select state from conversations where phone = $1",
+      [phone],
+    );
+    assert.equal(rows[0]?.state, "collecting");
   },
 );

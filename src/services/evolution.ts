@@ -15,7 +15,7 @@ export type Presence = "composing" | "paused";
 
 export interface EvolutionService {
   sendText(phone: string, text: string): Promise<{ whatsappMessageId: string }>;
-  setPresence(phone: string, presence: Presence): Promise<void>;
+  setPresence(phone: string, presence: Presence, delayMs: number): Promise<void>;
 }
 
 export function createEvolutionService(env: Env): EvolutionService {
@@ -65,10 +65,15 @@ export function createEvolutionService(env: Env): EvolutionService {
       return { whatsappMessageId: parsed.data.key.id };
     },
 
-    async setPresence(phone, presence) {
+    // Evolution sets the presence, waits `delay`, then clears it back to
+    // paused — without a delay the indicator is cancelled in the same instant
+    // and never shows. It also subscribes us to that contact's presence, which
+    // is what makes presence.update events start arriving for them.
+    async setPresence(phone, presence, delayMs) {
       await request(`/chat/sendPresence/${env.EVOLUTION_INSTANCE}`, {
         number: phone,
         presence,
+        delay: delayMs,
       });
     },
   };

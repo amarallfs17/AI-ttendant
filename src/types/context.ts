@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type pg from "pg";
 
 import type { Env } from "../config/env.js";
+import type { DebounceBuffer } from "../queue/debounceBuffer.js";
 import type { Queue } from "../queue/index.js";
 import type { EvolutionService } from "../services/evolution.js";
 
@@ -14,5 +15,6 @@ export interface AppContext {
   log: FastifyBaseLogger;
   pool: pg.Pool;
   queue: Queue;
+  debounce: DebounceBuffer;
   evolution: EvolutionService;
 }

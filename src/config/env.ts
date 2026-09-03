@@ -16,12 +16,26 @@ const envSchema = z.object({
     .refine((value) => !value.endsWith("/"), "must not end with a slash"),
   EVOLUTION_API_KEY: z.string().min(1),
   EVOLUTION_INSTANCE: z.string().min(1),
+
+  // Silence that closes a message block, and the cap that answers someone who
+  // never stops typing (claude.md §7 — long windows read as a dead bot).
+  DEBOUNCE_SECONDS: z.coerce.number().positive().default(10),
+  DEBOUNCE_MAX_SECONDS: z.coerce.number().positive().default(45),
+  CONVERSATION_TIMEOUT_HOURS: z.coerce.number().nonnegative().default(24),
 });
 
 export type Env = z.infer<typeof envSchema>;
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
-  const result = envSchema.safeParse(source);
+  const result = envSchema
+    .refine(
+      (env) => env.DEBOUNCE_MAX_SECONDS >= env.DEBOUNCE_SECONDS,
+      {
+        path: ["DEBOUNCE_MAX_SECONDS"],
+        message: "must be greater than or equal to DEBOUNCE_SECONDS",
+      },
+    )
+    .safeParse(source);
   if (result.success) {
     return result.data;
   }
