@@ -1,0 +1,23 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "5511999990001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3EB0FAKE00000000000000000001"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "conversation",
+    "message": {
+      "conversation": "Olá, preciso de ajuda com a impressora do setor."
+    },
+    "messageTimestamp": 1756900000,
+    "source": "android"
+  },
+  "destination": "http://app:3000/webhook/whatsapp",
+  "date_time": "2026-09-03T12:00:00.000Z",
+  "sender": "5511999990000@s.whatsapp.net",
+  "server_url": "http://evolution:8080",
+  "apikey": "FAKE-API-KEY"
+}
