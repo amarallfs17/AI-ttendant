@@ -381,18 +381,19 @@ no `.env.example` para quem clonar):
    evento `MESSAGES_UPSERT` e `byEvents: false` (com `true`, a Evolution
    anexaria o nome do evento à URL e bateria em 404).
 
-### `[~]` Pendência descoberta: endereçamento `@lid`
+### `[x]` Endereçamento `@lid` — descoberto na validação e corrigido
 
 A mensagem de teste chegou com `addressingMode: "lid"`: `remoteJid` era
 `205394026717326@lid` e o telefone real estava em **`key.remoteJidAlt`**
-(`553799718888@s.whatsapp.net`). Desta vez funcionou porque a Evolution
-normalizou antes de entregar, mas `parseWebhookEvent` lê apenas `remoteJid` e
-descartaria como `unresolvable-phone` se o payload viesse cru.
+(`553799718888@s.whatsapp.net`). Funcionou porque a Evolution normalizou antes
+de entregar, mas `parseWebhookEvent` lia apenas `remoteJid` e descartaria como
+`unresolvable-phone` se o payload viesse cru — o que na fase 4 significaria
+não identificar o colaborador.
 
-Correção necessária **antes da fase 4**, onde o telefone vira a chave de
-identificação do colaborador: usar `remoteJidAlt` quando
-`addressingMode === "lid"`, mantendo o descarte só quando nenhum dos dois
-resolver. O caso já tem fixture prevista e teste no arquivo do parser.
+Corrigido com `resolvePhoneJid`: quando `remoteJid` termina em `@lid`, o
+telefone vem de `remoteJidAlt`; o descarte só acontece quando nenhum dos dois
+resolve para um `@s.whatsapp.net`. Coberto por três testes e pela fixture
+`messagesUpsert.lid.json`, montada a partir do payload real capturado.
 
 ---
 
@@ -1114,12 +1115,9 @@ fase correspondente:
 
 Fases 0, 1 e 2 concluídas e validadas com WhatsApp real.
 
-**Antes da fase 3**, uma correção pequena e necessária: tratar
-`key.remoteJidAlt` no endereçamento `@lid` (ver a pendência ao final da fase 2).
-Ela precisa estar pronta antes da fase 4, que usa o telefone como chave de
-identificação do colaborador.
+Correção de `@lid` (`key.remoteJidAlt`) aplicada — ver o fim da fase 2.
 
-Depois, a **fase 3 — estado da conversa, debounce e anti-loop**, que substitui
+Em andamento: **fase 3 — estado da conversa, debounce e anti-loop**, que substitui
 a confirmação fixa de `processMessage` pelo agrupamento de mensagens e pela
 máquina de estados. Hoje cada mensagem gera uma resposta separada: três
 mensagens seguidas viram três confirmações, exatamente o que o debounce

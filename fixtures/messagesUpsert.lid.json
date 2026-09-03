@@ -1,0 +1,21 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "id": "3A4CFAKE0000000000AA",
+      "fromMe": false,
+      "remoteJid": "205394026717326@lid",
+      "participant": "",
+      "remoteJidAlt": "5511999990001@s.whatsapp.net",
+      "addressingMode": "lid"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "conversation",
+    "message": {
+      "conversation": "mensagem entregue com enderecamento LID"
+    },
+    "messageTimestamp": 1756900600,
+    "source": "ios"
+  }
+}

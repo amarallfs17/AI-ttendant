@@ -31,6 +31,8 @@ const webhookEventSchema = z.object({
     .object({
       key: z.object({
         remoteJid: z.string(),
+        // Present under LID addressing: carries the real @s.whatsapp.net JID.
+        remoteJidAlt: z.string().optional(),
         fromMe: z.boolean().optional(),
         id: z.string(),
       }),
@@ -43,17 +45,31 @@ const webhookEventSchema = z.object({
 /**
  * Extracts the phone number from an Evolution/Baileys JID.
  *
- * `@lid` JIDs carry an internal linked-identity number, not a phone number:
- * accepting one would register a phantom employee, so it resolves to null and
- * the message is ignored with a visible reason instead.
+ * Only `@s.whatsapp.net` JIDs carry a phone number. A `@lid` holds an internal
+ * linked-identity number instead, so it resolves to null here — see
+ * `resolvePhoneJid`, which picks the right JID before calling this.
  */
-export function normalizePhone(remoteJid: string): string | null {
-  const [user] = remoteJid.split("@");
-  if (!user || !remoteJid.endsWith("@s.whatsapp.net")) {
+export function normalizePhone(jid: string): string | null {
+  const [user] = jid.split("@");
+  if (!user || !jid.endsWith("@s.whatsapp.net")) {
     return null;
   }
   const digits = user.replace(/\D/g, "");
   return digits.length > 0 ? digits : null;
+}
+
+/**
+ * Picks the JID that actually identifies the person.
+ *
+ * WhatsApp may address a chat by LID, in which case `remoteJid` is an internal
+ * identifier and the real number arrives in `remoteJidAlt`. Reading only
+ * `remoteJid` would either drop the message or register a phantom employee.
+ */
+function resolvePhoneJid(key: { remoteJid: string; remoteJidAlt?: string }): string | null {
+  if (key.remoteJid.endsWith("@lid")) {
+    return key.remoteJidAlt ?? null;
+  }
+  return key.remoteJid;
 }
 
 function classify(
@@ -115,7 +131,8 @@ export function parseWebhookEvent(body: unknown): IngestDecision {
     return { action: "ignore", reason: "from-me" };
   }
 
-  const phone = normalizePhone(remoteJid);
+  const phoneJid = resolvePhoneJid(key);
+  const phone = phoneJid ? normalizePhone(phoneJid) : null;
   if (!phone) {
     return { action: "ignore", reason: "unresolvable-phone" };
   }

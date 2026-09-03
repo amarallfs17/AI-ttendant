@@ -6,6 +6,7 @@ import { normalizePhone, parseWebhookEvent } from "./inboundMessage.js";
 
 function event(overrides: {
   remoteJid?: string;
+  remoteJidAlt?: string;
   fromMe?: boolean;
   id?: string;
   pushName?: string;
@@ -18,6 +19,7 @@ function event(overrides: {
     data: {
       key: {
         remoteJid: overrides.remoteJid ?? "5511999990001@s.whatsapp.net",
+        remoteJidAlt: overrides.remoteJidAlt,
         fromMe: overrides.fromMe ?? false,
         id: overrides.id ?? "3EB0FAKE01",
       },
@@ -86,12 +88,34 @@ test("keeps pushName null when absent", () => {
   assert.equal(decision.action === "process" && decision.message.pushName, null);
 });
 
+test("resolves the phone from remoteJidAlt under LID addressing", () => {
+  const decision = parseWebhookEvent(
+    event({
+      remoteJid: "205394026717326@lid",
+      remoteJidAlt: "5511999990001@s.whatsapp.net",
+      message: { conversation: "oi" },
+    }),
+  );
+  assert.equal(decision.action, "process");
+  // The LID digits must never leak into the phone column.
+  assert.equal(decision.action === "process" && decision.message.phone, "5511999990001");
+});
+
 const ignoredCases: ReadonlyArray<[string, unknown, string]> = [
   ["group messages", event({ remoteJid: "1234567890-1600000000@g.us" }), "group"],
+  [
+    "LID messages with no alternative JID",
+    event({ remoteJid: "205394026717326@lid" }),
+    "unresolvable-phone",
+  ],
+  [
+    "LID messages whose alternative JID is not a phone",
+    event({ remoteJid: "205394026717326@lid", remoteJidAlt: "999@lid" }),
+    "unresolvable-phone",
+  ],
   ["status updates", event({ remoteJid: "status@broadcast" }), "status"],
   ["broadcast lists", event({ remoteJid: "1234567890@broadcast" }), "broadcast"],
   ["messages sent from the number itself", event({ fromMe: true }), "from-me"],
-  ["lid JIDs that carry no phone number", event({ remoteJid: "182736451@lid" }), "unresolvable-phone"],
   ["unsupported message shapes", event({ message: { stickerMessage: {} } }), "unsupported-type"],
   ["messages with no content at all", event({ message: null }), "unsupported-type"],
   ["events other than messages.upsert", event({ eventName: "messages.update" }), "not-a-message"],
@@ -127,6 +151,7 @@ const fixtureExpectations: ReadonlyArray<[string, string]> = [
   ["messagesUpsert.text.json", "process"],
   ["messagesUpsert.image.json", "process"],
   ["messagesUpsert.audio.json", "process"],
+  ["messagesUpsert.lid.json", "process"],
   ["messagesUpsert.group.json", "group"],
   ["messagesUpsert.status.json", "status"],
   ["messagesUpsert.fromMe.json", "from-me"],
