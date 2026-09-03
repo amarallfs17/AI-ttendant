@@ -1,0 +1,22 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "5511999990003@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3EB0FAKE00000000000000000006"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "audioMessage",
+    "message": {
+      "audioMessage": {
+        "mimetype": "audio/ogg; codecs=opus",
+        "seconds": 7,
+        "ptt": true,
+        "fileLength": "12874"
+      }
+    },
+    "messageTimestamp": 1756900500
+  }
+}

@@ -259,47 +259,47 @@ src/logic/guards.ts    # nasce aqui (filtros de evento)
 ```
 
 ### 2.1 Ingestão no webhook
-- [ ] Extrair do payload: `whatsappMessageId`, `phone` (normalizado — ver 4.1),
+- [x] Extrair do payload: `whatsappMessageId`, `phone` (normalizado — ver 4.1),
   `type` (`text`/`audio`/`image`), conteúdo, `fromMe`, `pushName`
-- [ ] Filtros ANTES de qualquer persistência (claude.md §8 "ignorar por padrão"):
-  - [ ] grupos (`remoteJid` termina em `@g.us`)
-  - [ ] status (`status@broadcast`)
-  - [ ] listas de transmissão (`@broadcast`)
-  - [ ] eventos que não são mensagem (ack, presence etc. — roteados depois,
+- [x] Filtros ANTES de qualquer persistência (claude.md §8 "ignorar por padrão"):
+  - [x] grupos (`remoteJid` termina em `@g.us`)
+  - [x] status (`status@broadcast`)
+  - [x] listas de transmissão (`@broadcast`)
+  - [x] eventos que não são mensagem (ack, presence etc. — roteados depois,
     fases 3 e 11)
-- [ ] Persistir inbound em `messages` e enfileirar; responder 200 **sempre**
+- [x] Persistir inbound em `messages` e enfileirar; responder 200 **sempre**
 
 ### 2.2 Deduplicação
-- [ ] Dedupe atômico via banco: `insert into messages ... on conflict
+- [x] Dedupe atômico via banco: `insert into messages ... on conflict
   (whatsapp_message_id) do nothing returning id` — sem linha retornada =
   reentrega da Evolution → descarta o evento com log `debug`
-- [ ] Cobre reentrega da Evolution e replay de fixture nos testes
+- [x] Cobre reentrega da Evolution e replay de fixture nos testes
 
 ### 2.3 Fila e lock (`queue/index.ts`)
-- [ ] `enqueue(phone, task)`: mapa `phone → fila FIFO`; um task em execução por
+- [x] `enqueue(phone, task)`: mapa `phone → fila FIFO`; um task em execução por
   telefone; ao esvaziar, remove a entrada do mapa
-- [ ] Log com contexto em cada transição (enqueued, started, finished, failed) —
+- [x] Log com contexto em cada transição (enqueued, started, finished, failed) —
   sempre incluindo `phone` e `whatsappMessageId` (claude.md §3, erros)
 
 ### 2.4 Retry e backoff (`queue/worker.ts`)
-- [ ] Wrapper de execução: 3 tentativas, backoff exponencial (1s → 5s → 25s)
-- [ ] Só operações externas re-tentáveis (IA, Jira, envio Evolution) — erro de
+- [x] Wrapper de execução: 3 tentativas, backoff exponencial (1s → 5s → 25s)
+- [x] Só operações externas re-tentáveis (IA, Jira, envio Evolution) — erro de
   lógica não re-tenta
-- [ ] Esgotou tentativas: log `error` com contexto completo + descarte; a partir
+- [x] Esgotou tentativas: log `error` com contexto completo + descarte; a partir
   da fase 9, também notifica via canal de alerta
-- [ ] `services/` lança, `worker` decide — sem try/catch espalhado (claude.md §3)
+- [x] `services/` lança, `worker` decide — sem try/catch espalhado (claude.md §3)
 
 ### 2.5 Envio de mensagens (`services/evolution.ts`)
-- [ ] `sendText(phone, text)` via API da Evolution; após sucesso, registrar a
+- [x] `sendText(phone, text)` via API da Evolution; após sucesso, registrar a
   mensagem outbound em `messages` com o **ID retornado** e `source = 'bot'` —
   este registro é a base da detecção de handoff (fase 9)
-- [ ] Registrar outbound só após sucesso do envio (retry não pode duplicar linha)
-- [ ] `setPresence(phone, 'composing')` já criado aqui (usado na fase 3)
+- [x] Registrar outbound só após sucesso do envio (retry não pode duplicar linha)
+- [x] `setPresence(phone, 'composing')` já criado aqui (usado na fase 3)
 
 ### Testes
-- [ ] `node:test`: fila serializa mesmo telefone e paraleliza telefones diferentes
-- [ ] Dedupe: replay da mesma fixture não gera segundo processamento
-- [ ] Filtro de grupo/status/broadcast com fixtures dedicadas
+- [x] `node:test`: fila serializa mesmo telefone e paraleliza telefones diferentes
+- [x] Dedupe: replay da mesma fixture não gera segundo processamento
+- [x] Filtro de grupo/status/broadcast com fixtures dedicadas
   (`fixtures/messagesUpsert.group.json` etc.)
 
 ### Validação
@@ -309,6 +309,90 @@ src/logic/guards.ts    # nasce aqui (filtros de evento)
 ### Critério de conclusão
 - Milhares de eventos podem chegar com a garantia de: resposta imediata ao
   webhook, processamento em série por conversa, zero duplicação funcional.
+
+### Notas de execução (2026-09-03)
+
+**Dois desvios deste plano, ambos justificados pelo claude.md §5:**
+
+1. Os filtros de evento **não** foram para `logic/guards.ts` e sim para
+   `logic/inboundMessage.ts`, que transforma o payload cru numa decisão
+   (`process` ou `ignore` com motivo). O claude.md §5 reserva `guards.ts` para
+   "anti-loop, limites, validação de ações", que nascem nas fases 3 e 5.
+2. A normalização de telefone antecipou da fase 4.1 para cá: o telefone é a
+   chave da fila *e* a coluna `messages.phone`. Mora em `inboundMessage.ts` e
+   é exportada para o import de CSV reusar na fase 4.
+
+**Decisões do mantenedor:** variáveis da Evolution obrigatórias (sem modo
+dry-run) e tarefa placeholder respondendo confirmação fixa.
+
+**`LOG_LEVEL` acrescentado ao schema de env** (default `info`). Descoberto na
+validação: os logs `debug` de motivo de descarte, duplicata e ordem da fila
+eram inalcançáveis com o nível fixo, contrariando o claude.md §3 ("log com
+contexto suficiente para identificar a conversa"). Registrado no claude.md §10.
+
+**Detalhes de implementação que valem lembrar:**
+- JID no formato `@lid` é ignorado com motivo próprio: ali os dígitos são um
+  identificador interno, não telefone, e aceitá-lo cadastraria colaborador
+  fantasma na fase 4.
+- `AbortSignal.timeout(10s)` em toda chamada à Evolution — sem isso, uma
+  Evolution pendurada travaria a cadeia daquele telefone para sempre.
+- Falha do banco na ingestão loga `error` e ainda responde 200: devolver 5xx
+  provocaria tempestade de reentrega. A mensagem se perde; trade-off explícito.
+- `worker.ts` usa `import timers from "node:timers/promises"` (acesso por
+  propriedade) porque o `import` nomeado não é interceptado pelo mock de
+  timers do `node:test` — com o import nomeado, a suíte levava 12 s.
+
+**Validado (lint, build e 43 testes verdes, 2 deles de banco):**
+- Dedupe: 5 entregas idênticas → 1 linha inbound + 1 resposta.
+- Filtros grupo/status/`fromMe`: 200, zero linhas gravadas.
+- Imagem e áudio classificados corretamente (legenda vira conteúdo; áudio fica
+  `null` até a transcrição da fase 8).
+- **Lock por conversa**, com stub de 1,5 s de latência: telefones distintos
+  iniciam com 20 ms de diferença, enquanto a 2ª mensagem do mesmo telefone só
+  inicia no instante exato em que a 1ª termina.
+- Outbound gravado com `source='bot'` apenas após envio bem-sucedido.
+
+**Não validado manualmente:** retry/backoff de ponta a ponta contra uma
+Evolution morta — coberto por teste automatizado (`worker.test.ts` verifica as
+3 tentativas, os intervalos de 1 s e 5 s e que `NonRetryableError` não é
+retentado).
+
+### Validação com WhatsApp real (2026-09-03)
+
+Ponta a ponta confirmado contra a instância `comerx` (Evolution v2.3.7 local,
+porta 8081) e o Supabase de produção: mensagem "Teste evolution api" recebida,
+enfileirada, respondida em **2,4 s**, com as duas linhas gravadas
+(`inbound/user/text` e `outbound/bot/text`). Seis mensagens de grupo chegaram
+no mesmo período e foram descartadas com `reason: group`, como manda o
+claude.md §8.
+
+**Três armadilhas de configuração encontradas no caminho** (todas documentadas
+no `.env.example` para quem clonar):
+
+1. `EVOLUTION_INSTANCE` é o **nome** da instância, não o id. O UUID devolve
+   404, porque a rota é `/message/sendText/{nome}`. Descobrir com
+   `GET /instance/fetchInstances`.
+2. A URL depende de onde o app roda: `localhost:8081` (app no host),
+   `evolution:8080` (ambos no compose) ou `host.docker.internal:8081` (app no
+   compose, Evolution no host).
+3. **A instância não tinha webhook configurado** — sem isso a Evolution recebe
+   a mensagem e nunca chama o backend. Registrado com
+   `POST /webhook/set/comerx`, url `http://localhost:3000/webhook/whatsapp`,
+   evento `MESSAGES_UPSERT` e `byEvents: false` (com `true`, a Evolution
+   anexaria o nome do evento à URL e bateria em 404).
+
+### `[~]` Pendência descoberta: endereçamento `@lid`
+
+A mensagem de teste chegou com `addressingMode: "lid"`: `remoteJid` era
+`205394026717326@lid` e o telefone real estava em **`key.remoteJidAlt`**
+(`553799718888@s.whatsapp.net`). Desta vez funcionou porque a Evolution
+normalizou antes de entregar, mas `parseWebhookEvent` lê apenas `remoteJid` e
+descartaria como `unresolvable-phone` se o payload viesse cru.
+
+Correção necessária **antes da fase 4**, onde o telefone vira a chave de
+identificação do colaborador: usar `remoteJidAlt` quando
+`addressingMode === "lid"`, mantendo o descarte só quando nenhum dos dois
+resolver. O caso já tem fixture prevista e teste no arquivo do parser.
 
 ---
 
@@ -410,10 +494,12 @@ scripts/importEmployees.ts
 ```
 
 ### 4.1 Normalização de telefone (pré-requisito de tudo)
-- [ ] Função única de normalização usada em TODOS os pontos de entrada
+- [x] Função única de normalização usada em TODOS os pontos de entrada
   (webhook, CSV, envio): somente dígitos, com DDI (`5511999999999`), extraído
   do `remoteJid` da Evolution (`5511999999999@s.whatsapp.net`)
-- [ ] Teste cobrindo formatos comuns de CSV (com máscara, sem DDI, com espaços)
+  → **antecipada para a fase 2**: `normalizePhone` em `logic/inboundMessage.ts`
+- [ ] Estender para os formatos do CSV (com máscara, sem DDI, com espaços) —
+  a versão da fase 2 só trata JID da Evolution e rejeita o resto
 
 ### 4.2 Identificação e onboarding (`logic/onboarding.ts`)
 - [ ] Toda mensagem: buscar `employees` pelo telefone normalizado
@@ -980,11 +1066,11 @@ Funcionalidade (testável de ponta a ponta):
 - [ ] Conversa expira e renasce limpa; nenhum loop possível
 
 Qualidade técnica (invariantes — claude.md §8):
-- [ ] Webhook responde imediato; processamento 100% assíncrono
-- [ ] Dedupe por `whatsapp_message_id`; lock por conversa; retry com backoff
+- [x] Webhook responde imediato; processamento 100% assíncrono (fase 2)
+- [x] Dedupe por `whatsapp_message_id`; lock por conversa; retry com backoff (fase 2)
 - [ ] Toda saída de modelo validada por Zod antes de agir; limites de ação
 - [ ] Webhooks externos autenticados; rate limit ativo
-- [ ] Migrations no boot; env validada com falha rápida; zero credencial no git
+- [x] Migrations no boot; env validada com falha rápida; zero credencial no git (fase 1)
 
 Operação:
 - [ ] Compose sobe tudo do zero; `/health` ok; `/qr` protegido e funcional
@@ -999,8 +1085,9 @@ Operação:
 Decisões que este plano tomou onde o claude.md é omisso — vetáveis antes da
 fase correspondente:
 
-1. **Fila em memória** no processo, sem persistência de jobs (fase 2). Crash
-   perde o buffer; mitigado por inbound persistido + volume baixo.
+1. ~~**Fila em memória**~~ — implementada na fase 2 e validada. Crash perde o
+   que estava na fila; mitigado por inbound persistido + volume baixo.
+   Multi-instância segue fora de escopo.
 2. **`node:test` nativo** como runner (fase 1) — zero dependência; trocar por
    vitest é barato se incomodar.
 3. **Semântica da retomada pós-handoff** (fase 9.2): claude.md §7 é ambíguo;
@@ -1010,6 +1097,8 @@ fase correspondente:
 5. **Novas envs propostas**: `HUMAN_PAUSE_MINUTES=60`, `ALERT_BOT_TOKEN`,
    `DATA_RETENTION_DAYS=90`, `JIRA_ISSUE_TYPE` (opcional) — todas com motivo
    declarado nas fases; registrar no claude.md §10 quando implementadas.
+   Já implementada: `LOG_LEVEL=info` (fase 2), sem a qual os logs `debug` de
+   descarte, duplicata e ordem da fila são inalcançáveis.
 6. **Campos do ticket** (fase 7.2): mínimo `summary` + `description` +
    `category` opcional. Confirmar se o projeto Jira exige mais.
 7. **CI no GitHub Actions** (fase 12.2): recomendado para receber PRs, mas é
@@ -1021,7 +1110,30 @@ fase correspondente:
 
 ---
 
-## Próximo passo
+## Próximo passo (atualizado em 2026-09-03)
+
+Fases 0, 1 e 2 concluídas e validadas com WhatsApp real.
+
+**Antes da fase 3**, uma correção pequena e necessária: tratar
+`key.remoteJidAlt` no endereçamento `@lid` (ver a pendência ao final da fase 2).
+Ela precisa estar pronta antes da fase 4, que usa o telefone como chave de
+identificação do colaborador.
+
+Depois, a **fase 3 — estado da conversa, debounce e anti-loop**, que substitui
+a confirmação fixa de `processMessage` pelo agrupamento de mensagens e pela
+máquina de estados. Hoje cada mensagem gera uma resposta separada: três
+mensagens seguidas viram três confirmações, exatamente o que o debounce
+resolve.
+
+### Ambiente do mantenedor (funcionando)
+- Supabase `bwemqvwulovzhgjhwrmv` via session pooler; migrations aplicadas.
+- Evolution v2.3.7 no host, porta 8081, instância `comerx` conectada, com
+  webhook apontando para `http://localhost:3000/webhook/whatsapp`.
+- Subir com `npm run dev`; `LOG_LEVEL=debug` mostra descartes e ordem da fila.
+
+---
+
+## Próximo passo (fase 1, histórico)
 
 Fase 1 completa, na ordem 1.1 → 1.7. Primeiro checkpoint concreto:
 `docker compose up --build` subindo app + Postgres, migrations aplicadas, e
