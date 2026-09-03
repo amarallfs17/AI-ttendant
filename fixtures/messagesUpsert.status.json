@@ -1,0 +1,21 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "status@broadcast",
+      "fromMe": false,
+      "id": "3EB0FAKE00000000000000000003",
+      "participant": "5511999990001@s.whatsapp.net"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "imageMessage",
+    "message": {
+      "imageMessage": {
+        "mimetype": "image/jpeg",
+        "caption": "status do contato, deve ser ignorado"
+      }
+    },
+    "messageTimestamp": 1756900200
+  }
+}

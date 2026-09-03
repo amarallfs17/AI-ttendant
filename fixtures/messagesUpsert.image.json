@@ -1,0 +1,23 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "5511999990002@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3EB0FAKE00000000000000000005"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "imageMessage",
+    "message": {
+      "imageMessage": {
+        "mimetype": "image/jpeg",
+        "caption": "olha o erro que aparece na tela",
+        "fileLength": "48213",
+        "height": 1280,
+        "width": 720
+      }
+    },
+    "messageTimestamp": 1756900400
+  }
+}

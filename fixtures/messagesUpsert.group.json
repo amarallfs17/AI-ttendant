@@ -1,0 +1,18 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "120363000000000000@g.us",
+      "fromMe": false,
+      "id": "3EB0FAKE00000000000000000002",
+      "participant": "5511999990001@s.whatsapp.net"
+    },
+    "pushName": "Colaborador Exemplo",
+    "messageType": "conversation",
+    "message": {
+      "conversation": "mensagem em grupo, deve ser ignorada"
+    },
+    "messageTimestamp": 1756900100
+  }
+}

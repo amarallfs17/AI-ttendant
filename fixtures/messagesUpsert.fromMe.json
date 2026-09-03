@@ -1,0 +1,16 @@
+{
+  "event": "messages.upsert",
+  "instance": "support",
+  "data": {
+    "key": {
+      "remoteJid": "5511999990001@s.whatsapp.net",
+      "fromMe": true,
+      "id": "3EB0FAKE00000000000000000004"
+    },
+    "messageType": "conversation",
+    "message": {
+      "conversation": "resposta enviada pelo proprio numero (bot ou humano no celular)"
+    },
+    "messageTimestamp": 1756900300
+  }
+}

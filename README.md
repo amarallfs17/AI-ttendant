@@ -6,9 +6,11 @@ conhecimento e abre/acompanha chamados no Jira, conversando pela Evolution API.
 - Arquitetura e decisões fechadas: [claude.md](claude.md)
 - Plano de execução por fases: [plan.md](plan.md)
 
-> **Status:** Fase 1 (bootstrap) concluída — servidor Fastify, Postgres com
-> migrations no boot, Docker e webhook eco da Evolution. README completo chega
-> na fase 12.
+> **Status:** Fases 1 e 2 concluídas — servidor Fastify, Postgres com migrations
+> no boot, Docker, e o webhook da Evolution ingerindo mensagens com
+> deduplicação, fila com lock por conversa e retry com backoff. A resposta ainda
+> é uma confirmação fixa: o agrupamento de mensagens chega na fase 3 e a IA na
+> fase 5. README completo chega na fase 12.
 
 ## Rodar em desenvolvimento
 
@@ -33,6 +35,12 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:3000/webhook/whatsapp
 ```
 
+As fixtures em [fixtures/](fixtures/) cobrem texto, imagem, áudio e os casos
+que o bot ignora por padrão (grupo, status, mensagem do próprio número).
+Eventos ignorados e duplicatas descartadas aparecem apenas com
+`LOG_LEVEL=debug` — é por onde se investiga por que uma conversa não foi
+respondida.
+
 ## Rodar tudo com Docker
 
 ```bash
@@ -54,5 +62,6 @@ conecte pelo **session pooler** (porta 5432, IPv4); detalhes no `.env.example`.
 |---|---|
 | `npm run dev` | Servidor com watch e `.env` |
 | `npm test` | Testes (`node:test`) |
+| `TEST_DATABASE_URL=... npm test` | Inclui os testes de banco (pulados sem essa variável, para nunca escrever no banco de produção) |
 | `npm run lint` / `npm run format` | ESLint / Prettier |
 | `npm run build` / `npm start` | Compila e roda o build |

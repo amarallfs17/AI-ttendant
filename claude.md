@@ -436,6 +436,7 @@ que o free tier do Supabase pausa projetos após ~7 dias de baixa atividade.
 # Server
 PORT=3000
 QR_PAGE_TOKEN=
+LOG_LEVEL=info                # fatal|error|warn|info|debug|trace (fase 2)
 
 # Database
 DATABASE_URL=postgres://...
