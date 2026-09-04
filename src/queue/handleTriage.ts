@@ -176,6 +176,7 @@ async function answerFromKnowledgeBase(
     ctx.pool,
     ctx.env.CONTEXT_MD_URL,
     ctx.log,
+    ctx.env.CONTEXT_MD_TOKEN,
   );
 
   const { system, messages } = buildFaqInput(ctx.faqPrompt, {

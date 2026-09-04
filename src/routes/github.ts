@@ -68,6 +68,7 @@ export function createGithubRoutes(ctx: AppContext): FastifyPluginAsync {
         ctx.pool,
         ctx.env.CONTEXT_MD_URL,
         request.log,
+        ctx.env.CONTEXT_MD_TOKEN,
       );
 
       return reply.code(200).send({ received: true, refreshed });

@@ -12,14 +12,42 @@ export interface ContextLogger {
   warn: (obj: object, message: string) => void;
 }
 
-async function fetchMarkdown(url: string): Promise<string> {
+/**
+ * A private repository will not serve its raw file to an anonymous request, so
+ * a token turns this into an authenticated GitHub Contents API call:
+ * `application/vnd.github.raw` asks that endpoint for the file itself rather
+ * than the JSON metadata wrapper.
+ *
+ * Without a token nothing changes — a public raw URL is fetched as before.
+ */
+function buildHeaders(token: string | undefined): Record<string, string> {
+  if (!token) {
+    return { accept: "text/plain, text/markdown, */*" };
+  }
+
+  return {
+    accept: "application/vnd.github.raw",
+    authorization: `Bearer ${token}`,
+    "x-github-api-version": "2022-11-28",
+  };
+}
+
+async function fetchMarkdown(url: string, token: string | undefined): Promise<string> {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    headers: { accept: "text/plain, text/markdown, */*" },
+    headers: buildHeaders(token),
   });
 
   if (!response.ok) {
-    throw new Error(`context fetch returned ${response.status}`);
+    // 404 on a private repo almost always means the token cannot see it, which
+    // GitHub reports as "not found" rather than "forbidden".
+    const hint =
+      response.status === 404 && token
+        ? " (repositório privado: confira se o token tem acesso a ele)"
+        : response.status === 401 || response.status === 403
+          ? " (token inválido ou sem permissão de leitura)"
+          : "";
+    throw new Error(`context fetch returned ${response.status}${hint}`);
   }
 
   const text = await response.text();
@@ -42,6 +70,7 @@ export async function getExternalContext(
   pool: pg.Pool,
   url: string | undefined,
   log: ContextLogger,
+  token?: string,
 ): Promise<string> {
   if (!url) return "";
 
@@ -54,7 +83,7 @@ export async function getExternalContext(
   }
 
   try {
-    const content = await fetchMarkdown(url);
+    const content = await fetchMarkdown(url, token);
     await upsertCachedContext(pool, url, content);
     log.debug({ url, bytes: content.length }, "external context refreshed");
     return content;
@@ -73,11 +102,12 @@ export async function refreshExternalContext(
   pool: pg.Pool,
   url: string | undefined,
   log: ContextLogger,
+  token?: string,
 ): Promise<boolean> {
   if (!url) return false;
 
   try {
-    const content = await fetchMarkdown(url);
+    const content = await fetchMarkdown(url, token);
     await upsertCachedContext(pool, url, content);
     log.debug({ url, bytes: content.length }, "external context refreshed on push");
     return true;

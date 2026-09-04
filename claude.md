@@ -479,7 +479,8 @@ JIRA_PROJECT_KEY=
 JIRA_WEBHOOK_SECRET=
 
 # External context (optional) - avisos do momento, sem redeploy
-CONTEXT_MD_URL=              # URL raw de um .md; vazio = recurso desligado
+CONTEXT_MD_URL=              # raw (repo público) ou Contents API (privado)
+CONTEXT_MD_TOKEN=            # só para repo privado; fine-grained, Contents:read
 GITHUB_WEBHOOK_SECRET=       # sem ele a rota /webhook/github nem é montada
 
 # Behavior

@@ -37,6 +37,9 @@ const envSchema = z.object({
   // Optional: current reminders the agent should know about, fetched from a raw
   // markdown URL. Unset means the feature is simply off.
   CONTEXT_MD_URL: z.url({ protocol: /^https?$/ }).optional(),
+  // Needed only when CONTEXT_MD_URL points at a private repository: an
+  // anonymous request gets 404 there, not 403.
+  CONTEXT_MD_TOKEN: z.string().min(1).optional(),
   // Only when the GitHub webhook is used; without it the route is not mounted.
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 });

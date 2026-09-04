@@ -16,11 +16,14 @@ const silentLog = { debug: () => undefined, warn: () => undefined };
 async function serveMarkdown(body: string, status = 200): Promise<{
   url: string;
   hits: () => number;
+  lastHeaders: () => Record<string, string | string[] | undefined>;
   close: () => Promise<void>;
 }> {
   let hits = 0;
-  const server = createServer((_req, res) => {
+  let lastHeaders: Record<string, string | string[] | undefined> = {};
+  const server = createServer((req, res) => {
     hits += 1;
+    lastHeaders = req.headers;
     res.writeHead(status, { "Content-Type": "text/markdown" });
     res.end(body);
   });
@@ -33,6 +36,7 @@ async function serveMarkdown(body: string, status = 200): Promise<{
   return {
     url: `http://127.0.0.1:${port}/context.md`,
     hits: () => hits,
+    lastHeaders: () => lastHeaders,
     close: async () => {
       server.close();
       await once(server as Server, "close");
@@ -145,4 +149,42 @@ test("a forced refresh updates the cache", { skip }, async (t) => {
 
 test("a forced refresh with no URL reports that it did nothing", async () => {
   assert.equal(await refreshExternalContext(null as never, undefined, silentLog), false);
+});
+
+// A private repository answers 404 to an anonymous request, so the token turns
+// this into an authenticated GitHub Contents API call.
+test("sends the token when one is configured", { skip }, async (t) => {
+  const pool = createPool(testDatabaseUrl!);
+  const origin = await serveMarkdown("avisos privados");
+
+  t.after(async () => {
+    await pool.query("delete from context_cache where url = $1", [origin.url]);
+    await origin.close();
+    await pool.end();
+  });
+
+  await getExternalContext(pool, origin.url, silentLog, "um-token-secreto");
+
+  const headers = origin.lastHeaders();
+  assert.equal(headers.authorization, "Bearer um-token-secreto");
+  assert.equal(
+    headers.accept,
+    "application/vnd.github.raw",
+    "the Contents API needs this to return the file instead of JSON metadata",
+  );
+});
+
+test("stays anonymous when no token is configured", { skip }, async (t) => {
+  const pool = createPool(testDatabaseUrl!);
+  const origin = await serveMarkdown("avisos publicos");
+
+  t.after(async () => {
+    await pool.query("delete from context_cache where url = $1", [origin.url]);
+    await origin.close();
+    await pool.end();
+  });
+
+  await getExternalContext(pool, origin.url, silentLog);
+
+  assert.equal(origin.lastHeaders().authorization, undefined);
 });
