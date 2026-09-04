@@ -663,55 +663,55 @@ prompts/triage.example.md
 ```
 
 ### 5.1 Interface do provedor (`services/ai/provider.ts`)
-- [ ] Interface mínima orientada ao uso real (multimodal + tool use):
+- [x] Interface mínima orientada ao uso real (multimodal + tool use):
   `complete({ system, messages, tools }) → { toolCall?, text? }` — `messages`
   aceita partes de imagem (base64 + mime) para a fase 8
-- [ ] `AI_PROVIDER` (`gemini` | `claude`), `AI_API_KEY`, `AI_MODEL` no schema
+- [x] `AI_PROVIDER` (`gemini` | `claude`), `AI_API_KEY`, `AI_MODEL` no schema
   de env; factory escolhe a implementação no boot
-- [ ] `claude.ts`: Messages API com tool use nativo
-- [ ] `gemini.ts`: function calling equivalente
-- [ ] Nada fora de `services/ai/` conhece SDK ou formato de provedor
+- [x] `claude.ts`: Messages API com tool use nativo
+- [x] `gemini.ts`: function calling equivalente
+- [x] Nada fora de `services/ai/` conhece SDK ou formato de provedor
 
 ### 5.2 Contrato de ações (`types/actions.ts`)
-- [ ] Uma tool por ação do claude.md §7, com schema Zod do input:
+- [x] Uma tool por ação do claude.md §7, com schema Zod do input:
   - `answerFaq { answer }`
   - `collectTicketData { question?, fields? }`
   - `checkTicketStatus {}`
   - `escalateToHuman { reason }`
-- [ ] Os mesmos schemas geram as definições de tool enviadas ao provedor
+- [x] Os mesmos schemas geram as definições de tool enviadas ao provedor
   (fonte única — claude.md §2, motivo da escolha do Zod)
 
 ### 5.3 Triagem (`logic/triage.ts`)
-- [ ] Prompt de triagem montado com: dados do colaborador, estado atual da
+- [x] Prompt de triagem montado com: dados do colaborador, estado atual da
   conversa, histórico recente, base de FAQ, MD de contexto externo (quando
   houver — fase 6 liga essa entrada)
-- [ ] `prompts/triage.example.md` versionado, genérico e funcional; carregado
+- [x] `prompts/triage.example.md` versionado, genérico e funcional; carregado
   via `services/prompts.ts` com fallback (custom se existir → example)
-- [ ] Saída do modelo validada contra os schemas Zod **antes** de executar;
+- [x] Saída do modelo validada contra os schemas Zod **antes** de executar;
   campo fora do contrato → rejeita
-- [ ] Ação rejeitada: log com motivo + resposta neutra ao usuário (sem expor
+- [x] Ação rejeitada: log com motivo + resposta neutra ao usuário (sem expor
   erro interno)
 
 ### 5.4 Guards de ação (`logic/guards.ts`)
-- [ ] Limite de tickets por conversa/hora (default 3) — contagem em `tickets`
+- [x] Limite de tickets por conversa/hora (default 3) — contagem em `tickets`
   por telefone na última hora (claude.md §8, ação irreversível)
-- [ ] Conversa `humanHandling` ou `paused_until` no futuro → nenhuma ação
+- [x] Conversa `humanHandling` ou `paused_until` no futuro → nenhuma ação
   automática
-- [ ] Falha do provedor após retries: **uma** mensagem de dificuldade técnica
+- [x] Falha do provedor após retries: **uma** mensagem de dificuldade técnica
   (respeitando o anti-loop) e log `error`
 
 ### 5.5 Histórico e truncamento
-- [ ] Contexto = últimas N mensagens (default 20, constante interna — só vira
+- [x] Contexto = últimas N mensagens (default 20, constante interna — só vira
   env se houver motivo)
-- [ ] Acima de N: gerar/atualizar resumo compacto das antigas, guardado em
+- [x] Acima de N: gerar/atualizar resumo compacto das antigas, guardado em
   `partial_data.historySummary`, injetado antes do histórico recente
   (claude.md §8, custo controlado)
 
 ### Testes
-- [ ] Provedor fake (fixtures de tool calls) — sem chamar API real
-- [ ] Saída inválida do modelo → rejeitada, nada executado
-- [ ] Guard de limite de tickets e de conversa pausada
-- [ ] Truncamento: conversa longa → contexto = resumo + N recentes
+- [x] Provedor fake (fixtures de tool calls) — sem chamar API real
+- [x] Saída inválida do modelo → rejeitada, nada executado
+- [x] Guard de limite de tickets e de conversa pausada
+- [x] Truncamento: conversa longa → contexto = resumo + N recentes
 
 ### Validação
 - Com chave real em dev: fixture "como configuro a impressora?" → tool
@@ -721,6 +721,65 @@ prompts/triage.example.md
 ### Critério de conclusão
 - Triagem decide entre as quatro ações com contrato validado; trocar de
   provedor é trocar env; nenhuma saída do modelo age sem passar pelos guards.
+
+### Notas de execução (2026-09-04)
+
+**Provedor: só Gemini** (decisão do mantenedor), via Google AI Studio com o SDK
+`@google/genai` v2.21. `claude.ts` fica para quando houver motivo — provedor que
+nunca rodou é código que quebra em silêncio. A interface existe porque a segunda
+implementação está planejada, o que o claude.md §3 exige.
+
+> **Para quem for implementar `claude.ts`:** a skill `claude-api` (SDK da
+> Anthropic) **não se aplica ao `gemini.ts`**. São APIs diferentes. Carregue a
+> skill só ao escrever o provedor da Anthropic.
+
+**Superfície da API confirmada nos tipos instalados, não na documentação.** A
+doc do `ai.google.dev` mostra `interactions.create` com `steps`; os tipos do SDK
+mostram que `interactions` é a superfície de *agents* e que a via de geração é
+`models.generateContent`. Confirmado antes de escrever o adaptador:
+`config.systemInstruction`, `config.tools[{functionDeclarations}]`,
+`config.abortSignal`, e `response.functionCalls`.
+
+**`parametersJsonSchema` aceita JSON Schema cru**, e o Zod 4 tem
+`z.toJSONSchema()` nativo — os mesmos schemas geram as declarações de tool e
+validam a resposta, sem dependência nova. É a "fonte única" do plan.md 5.2.
+
+**Modelo `gemini-3.8-flash`** como padrão (free tier no AI Studio). O
+`.env.example` documenta `gemini-3.1-flash-lite` como alternativa mais barata
+para volume alto.
+
+**Schemas estritos (`z.strictObject`), não permissivos.** Um teste pegou que o
+Zod por padrão *descarta* campos extras e aceita o resto. Funcionalmente seguro,
+mas silencioso: uma tentativa de injeção passaria sem registro. Com estrito, o
+campo extra vira rejeição visível no log — que é o ponto, já que os prompts são
+públicos (claude.md §8).
+
+**Falha real corrigida durante a validação:** quando a chamada de resumo voltava
+sem texto, o código mantinha o resumo anterior **sem logar**, contra o
+claude.md §3. Agora registra `warn` — senão o histórico cresceria indefinidamente
+sem ninguém perceber.
+
+**Dois arquivos, não um:** a triagem foi para `queue/handleTriage.ts` e o
+`processMessage.ts` ficou como roteador (guard → onboarding → triagem). Juntos
+passariam de 200 linhas, o limite do claude.md §3.
+
+**Validado — 167 testes verdes** e ponta a ponta contra um Gemini falso
+(`GOOGLE_GEMINI_BASE_URL`, sem tocar no código de produção):
+- **As quatro ações**: "como configuro a impressora" → `answerFaq` com resposta
+  real; "meu notebook não liga" → `collectTicketData` e conversa em `collecting`;
+  "como está meu chamado" → `checkTicketStatus`; "quero falar com uma pessoa" →
+  `escalateToHuman`.
+- **Contrato (o teste que sustenta o §8)**: tool inexistente (`dropDatabase`) →
+  `unknown-tool`, nada executado; `answerFaq` com `answer` vazio **e** campo
+  injetado → rejeitado com as **duas** violações no log. Nos dois casos o usuário
+  recebeu só a mensagem neutra, sem vazar erro interno.
+- **Resumo de histórico**: 38 mensagens → 18 turnos compactados, resumo gravado
+  em `partial_data` e a triagem seguinte recebeu **20 turnos em vez de 38**.
+- **Falha do provedor**: 3 tentativas com backoff de 1 s e 5 s, `error` no log e
+  **uma única** mensagem de dificuldade técnica, sem loop.
+
+**Não validado com a API real** — depende da chave do Google AI Studio
+(aistudio.google.com/apikey) no `.env`. O free tier do `gemini-3.8-flash` cobre.
 
 ---
 
@@ -1170,7 +1229,7 @@ Funcionalidade (testável de ponta a ponta):
 Qualidade técnica (invariantes — claude.md §8):
 - [x] Webhook responde imediato; processamento 100% assíncrono (fase 2)
 - [x] Dedupe por `whatsapp_message_id`; lock por conversa; retry com backoff (fase 2)
-- [ ] Toda saída de modelo validada por Zod antes de agir; limites de ação
+- [x] Toda saída de modelo validada por Zod antes de agir; limites de ação (fase 5)
 - [ ] Webhooks externos autenticados; rate limit ativo
 - [x] Migrations no boot; env validada com falha rápida; zero credencial no git (fase 1)
 
@@ -1214,12 +1273,16 @@ fase correspondente:
 
 ## Próximo passo (atualizado em 2026-09-04)
 
-Fases 0 a 4 concluídas e validadas.
+Fases 0 a 5 concluídas. O agente agora **decide**.
 
-Próxima: **fase 5 — camada de IA, triagem e contrato de ações**. É a virada do
-projeto: a confirmação fixa dá lugar a uma decisão real entre responder FAQ,
-coletar dados de ticket, consultar chamado ou escalar para humano. O
-colaborador identificado na fase 4 (nome e setor) passa a ir no prompt.
+Pendência para o mantenedor: pôr a chave do Google AI Studio em `AI_API_KEY`
+(aistudio.google.com/apikey) e validar com WhatsApp real — as quatro ações foram
+testadas contra um provedor falso, mas nunca contra o Gemini de verdade.
+
+Próxima: **fase 6 — agente de FAQ e contexto externo**. A entrada de base de
+conhecimento já existe no prompt de triagem, mas chega vazia: falta
+`knowledge/faq.example.md`, o carregamento com fallback e o MD de contexto
+externo por URL com cache.
 
 ### Ambiente do mantenedor (funcionando)
 - Supabase `bwemqvwulovzhgjhwrmv` via session pooler; migrations aplicadas.

@@ -12,6 +12,10 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+# Runtime data, not build output: the prompt loader reads these at boot and
+# falls back to the .example copies when no customisation is mounted.
+COPY prompts ./prompts
+COPY knowledge ./knowledge
 EXPOSE 3000
 USER node
 CMD ["node", "dist/server.js"]

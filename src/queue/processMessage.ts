@@ -1,19 +1,22 @@
 import {
+  getConversation,
   getConversationPartialData,
   getEmployee,
   getRecentMessageDirections,
   insertEmployee,
   insertOutboundMessage,
   updateConversationPartialData,
+  updateConversationState,
 } from "../db/queries.js";
 import { concatenateBlock } from "../logic/debounce.js";
 import { countTrailingBotMessages, shouldSuppressReply } from "../logic/guards.js";
 import type { InboundMessage } from "../logic/inboundMessage.js";
 import { advanceOnboarding, type OnboardingState } from "../logic/onboarding.js";
 import type { AppContext } from "../types/context.js";
+import { runTriage } from "./handleTriage.js";
 import { withRetry } from "./worker.js";
 
-// Placeholder reply until triage (phase 5) decides what to say.
+// Sent right after registration, before the first triage turn.
 const ACKNOWLEDGEMENT = "Recebi sua mensagem, já estou processando.";
 
 /** How long the typing indicator stays up before Evolution clears it. */
@@ -56,7 +59,21 @@ export async function processBlock(
     { ...meta, employee: employee.name, department: employee.department, blockText },
     "processing block",
   );
-  await reply(ctx, phone, ACKNOWLEDGEMENT, meta);
+
+  const conversation = await getConversation(ctx.pool, phone);
+  if (!conversation) {
+    ctx.log.error(meta, "conversation row missing for a known employee");
+    return;
+  }
+
+  const outcome = await runTriage(ctx, phone, employee, conversation, meta);
+  if (!outcome.reply) return;
+
+  if (outcome.nextState && outcome.nextState !== conversation.state) {
+    await updateConversationState(ctx.pool, phone, outcome.nextState);
+  }
+
+  await reply(ctx, phone, outcome.reply, meta);
 }
 
 /**

@@ -184,3 +184,68 @@ export async function insertOutboundMessage(
     [message.whatsappMessageId, message.phone, message.content],
   );
 }
+
+export interface StoredConversation {
+  state: ConversationState;
+  partialData: Record<string, unknown>;
+  pausedUntil: Date | null;
+}
+
+export async function getConversation(
+  pool: pg.Pool,
+  phone: string,
+): Promise<StoredConversation | null> {
+  const result = await pool.query<{
+    state: ConversationState;
+    partial_data: Record<string, unknown>;
+    paused_until: Date | null;
+  }>(
+    "select state, partial_data, paused_until from conversations where phone = $1",
+    [phone],
+  );
+
+  const row = result.rows[0];
+  return row
+    ? { state: row.state, partialData: row.partial_data, pausedUntil: row.paused_until }
+    : null;
+}
+
+/** Conversation history for the model, oldest first. */
+export async function getConversationMessages(
+  pool: pg.Pool,
+  phone: string,
+  limit: number,
+): Promise<{ id: string; direction: "inbound" | "outbound"; content: string | null }[]> {
+  const result = await pool.query<{
+    id: string;
+    direction: "inbound" | "outbound";
+    content: string | null;
+  }>(
+    `select id, direction, content from (
+       select id, direction, content, created_at
+       from messages
+       where phone = $1
+       order by created_at desc, id desc
+       limit $2
+     ) recent
+     order by created_at asc, id asc`,
+    [phone, limit],
+  );
+
+  return result.rows;
+}
+
+/** Backs the rate limit on the one irreversible action (claude.md §8). */
+export async function countRecentTickets(
+  pool: pg.Pool,
+  phone: string,
+  withinHours: number,
+): Promise<number> {
+  const result = await pool.query<{ count: string }>(
+    `select count(*) from tickets
+     where phone = $1 and created_at > now() - make_interval(hours => $2::int)`,
+    [phone, withinHours],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}

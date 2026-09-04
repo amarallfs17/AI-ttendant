@@ -8,7 +8,9 @@ import { createQueue } from "./queue/index.js";
 import { processBlock } from "./queue/processMessage.js";
 import { startConversationSweeper } from "./queue/sweeper.js";
 import { createWhatsappRoutes } from "./routes/whatsapp.js";
+import { createAiProvider } from "./services/ai/index.js";
 import { createEvolutionService } from "./services/evolution.js";
+import { loadPrompt } from "./services/prompts.js";
 import type { AppContext } from "./types/context.js";
 
 function loadEnv(): Env {
@@ -57,6 +59,9 @@ async function main(): Promise<void> {
     queue,
     debounce,
     evolution: createEvolutionService(env),
+    ai: createAiProvider(env),
+    // Read once: re-reading per message would be I/O for nothing.
+    triagePrompt: await loadPrompt("triage", new URL("../prompts/", import.meta.url)),
   };
 
   const stopSweeper = startConversationSweeper(ctx);
