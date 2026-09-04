@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "import:employees": "node --env-file=.env --import tsx src/scripts/importEmployees.ts"
   },
   "dependencies": {
     "fastify": "^5.12.1",

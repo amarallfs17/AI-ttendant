@@ -1,7 +1,15 @@
-import { getRecentMessageDirections, insertOutboundMessage } from "../db/queries.js";
+import {
+  getConversationPartialData,
+  getEmployee,
+  getRecentMessageDirections,
+  insertEmployee,
+  insertOutboundMessage,
+  updateConversationPartialData,
+} from "../db/queries.js";
 import { concatenateBlock } from "../logic/debounce.js";
 import { countTrailingBotMessages, shouldSuppressReply } from "../logic/guards.js";
 import type { InboundMessage } from "../logic/inboundMessage.js";
+import { advanceOnboarding, type OnboardingState } from "../logic/onboarding.js";
 import type { AppContext } from "../types/context.js";
 import { withRetry } from "./worker.js";
 
@@ -36,6 +44,76 @@ export async function processBlock(
     return;
   }
 
+  const blockText = concatenateBlock(messages);
+  const employee = await getEmployee(ctx.pool, phone);
+
+  if (!employee) {
+    await runOnboarding(ctx, phone, messages, blockText, meta);
+    return;
+  }
+
+  ctx.log.debug(
+    { ...meta, employee: employee.name, department: employee.department, blockText },
+    "processing block",
+  );
+  await reply(ctx, phone, ACKNOWLEDGEMENT, meta);
+}
+
+/**
+ * Registers someone we have never seen before, one question at a time. The
+ * sub-state lives in `conversations.partial_data.onboarding`; the conversation
+ * itself stays `idle`, since the states in claude.md §6 are closed.
+ */
+async function runOnboarding(
+  ctx: AppContext,
+  phone: string,
+  messages: readonly InboundMessage[],
+  blockText: string,
+  meta: Record<string, unknown>,
+): Promise<void> {
+  const partialData = await getConversationPartialData(ctx.pool, phone);
+  const current = (partialData.onboarding as OnboardingState | undefined) ?? null;
+  const pushName = messages.find((message) => message.pushName)?.pushName ?? null;
+
+  const action = advanceOnboarding(current, { text: blockText, pushName });
+
+  if (action.kind === "ask") {
+    await updateConversationPartialData(ctx.pool, phone, {
+      ...partialData,
+      onboarding: action.next,
+    });
+    ctx.log.info({ ...meta, step: action.next.step }, "onboarding question sent");
+    await reply(ctx, phone, action.text, meta);
+    return;
+  }
+
+  await insertEmployee(ctx.pool, {
+    phone,
+    name: action.name,
+    department: action.department,
+  });
+
+  // The form is over: drop its state so a later message never re-enters it.
+  const { onboarding: _done, ...rest } = partialData;
+  void _done;
+  await updateConversationPartialData(ctx.pool, phone, rest);
+
+  ctx.log.info(
+    { ...meta, name: action.name, department: action.department },
+    "employee registered",
+  );
+
+  // Answer what they originally wrote, now that we know who they are.
+  ctx.log.debug({ ...meta, blockText: action.pendingText }, "processing pending block");
+  await reply(ctx, phone, ACKNOWLEDGEMENT, meta);
+}
+
+async function reply(
+  ctx: AppContext,
+  phone: string,
+  text: string,
+  meta: Record<string, unknown>,
+): Promise<void> {
   // Not awaited on purpose: Evolution holds the response for the whole typing
   // delay, and a cosmetic indicator must not add seconds to every reply nor
   // fail the block.
@@ -45,19 +123,17 @@ export async function processBlock(
       ctx.log.debug({ ...meta, err: error }, "could not send typing presence");
     });
 
-  const blockText = concatenateBlock(messages);
-  ctx.log.debug({ ...meta, blockText }, "processing block");
-
-  const sent = await withRetry(
-    () => ctx.evolution.sendText(phone, ACKNOWLEDGEMENT),
-    { log: ctx.log, meta, operation: "sendText" },
-  );
+  const sent = await withRetry(() => ctx.evolution.sendText(phone, text), {
+    log: ctx.log,
+    meta,
+    operation: "sendText",
+  });
 
   // Recorded only after a successful send, so retries cannot duplicate rows.
   await insertOutboundMessage(ctx.pool, {
     whatsappMessageId: sent.whatsappMessageId,
     phone,
-    content: ACKNOWLEDGEMENT,
+    content: text,
   });
 
   ctx.log.info({ ...meta, sentMessageId: sent.whatsappMessageId }, "reply sent");
