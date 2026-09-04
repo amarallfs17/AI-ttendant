@@ -71,3 +71,29 @@ test("parseEnv rejects an EVOLUTION_BASE_URL with a trailing slash", () => {
     /slash/,
   );
 });
+
+// A `.env` file writes an unused optional variable as `VAR=`. Treating that as
+// a present-but-empty value made the process refuse to boot over a variable
+// nobody wanted.
+test("an empty optional variable means unset, not invalid", () => {
+  const env = parseEnv({
+    ...validSource,
+    GITHUB_WEBHOOK_SECRET: "",
+    CONTEXT_MD_URL: "",
+    CONTEXT_MD_TOKEN: "   ",
+  });
+
+  assert.equal(env.GITHUB_WEBHOOK_SECRET, undefined);
+  assert.equal(env.CONTEXT_MD_URL, undefined);
+  assert.equal(env.CONTEXT_MD_TOKEN, undefined);
+});
+
+test("an empty required variable is still an error", () => {
+  assert.throws(() => parseEnv({ ...validSource, DATABASE_URL: "" }), /DATABASE_URL/);
+});
+
+test("a variable left empty falls back to its default", () => {
+  const env = parseEnv({ ...validSource, AI_MODEL: "", PORT: "" });
+  assert.equal(env.AI_MODEL, "gemini-3.8-flash");
+  assert.equal(env.PORT, 3000);
+});

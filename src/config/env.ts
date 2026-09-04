@@ -46,6 +46,21 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * In a `.env` file, `VAR=` means "not set" — that is how anyone writes an
+ * optional variable they are not using. Zod sees an empty string instead, so an
+ * optional field would reject it and the process would refuse to boot over a
+ * variable nobody wanted. Dropping the blanks makes the file mean what it looks
+ * like it means.
+ */
+function withoutBlanks(
+  source: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value?.trim() !== ""),
+  );
+}
+
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const result = envSchema
     .refine(
@@ -55,7 +70,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
         message: "must be greater than or equal to DEBOUNCE_SECONDS",
       },
     )
-    .safeParse(source);
+    .safeParse(withoutBlanks(source));
   if (result.success) {
     return result.data;
   }
