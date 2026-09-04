@@ -20,26 +20,39 @@ export type IgnoreReason =
   | "unsupported-type"
   | "unresolvable-phone";
 
+/** Whether the contact is actively typing; drives the debounce extension. */
+export type PresenceState = "typing" | "idle";
+
 export type IngestDecision =
   | { action: "process"; message: InboundMessage }
+  | { action: "presence"; phone: string; presence: PresenceState }
   | { action: "ignore"; reason: IgnoreReason };
 
-const webhookEventSchema = z.object({
+// Evolution forwards the Baileys presence payload unchanged.
+const presenceDataSchema = z.object({
+  id: z.string(),
+  presences: z.record(
+    z.string(),
+    z.object({ lastKnownPresence: z.string().optional() }),
+  ),
+});
+
+const envelopeSchema = z.object({
   event: z.string(),
   instance: z.string().optional(),
-  data: z
-    .object({
-      key: z.object({
-        remoteJid: z.string(),
-        // Present under LID addressing: carries the real @s.whatsapp.net JID.
-        remoteJidAlt: z.string().optional(),
-        fromMe: z.boolean().optional(),
-        id: z.string(),
-      }),
-      pushName: z.string().optional(),
-      message: z.record(z.string(), z.unknown()).nullish(),
-    })
-    .optional(),
+  data: z.unknown().optional(),
+});
+
+const messageDataSchema = z.object({
+  key: z.object({
+    remoteJid: z.string(),
+    // Present under LID addressing: carries the real @s.whatsapp.net JID.
+    remoteJidAlt: z.string().optional(),
+    fromMe: z.boolean().optional(),
+    id: z.string(),
+  }),
+  pushName: z.string().optional(),
+  message: z.record(z.string(), z.unknown()).nullish(),
 });
 
 /**
@@ -103,18 +116,46 @@ function classify(
   return null;
 }
 
-export function parseWebhookEvent(body: unknown): IngestDecision {
-  const parsed = webhookEventSchema.safeParse(body);
+function parsePresence(data: unknown): IngestDecision {
+  const parsed = presenceDataSchema.safeParse(data);
   if (!parsed.success) {
     return { action: "ignore", reason: "unknown-payload" };
   }
 
-  const { event, data } = parsed.data;
-  if (event !== "messages.upsert" || !data) {
+  const { id, presences } = parsed.data;
+  const phone = normalizePhone(id);
+  if (!phone) {
+    // Groups and LID presences carry nothing we can key a conversation on.
+    return { action: "ignore", reason: "unresolvable-phone" };
+  }
+
+  const state = presences[id]?.lastKnownPresence;
+  const typing = state === "composing" || state === "recording";
+  return { action: "presence", phone, presence: typing ? "typing" : "idle" };
+}
+
+export function parseWebhookEvent(body: unknown): IngestDecision {
+  const envelope = envelopeSchema.safeParse(body);
+  if (!envelope.success) {
+    return { action: "ignore", reason: "unknown-payload" };
+  }
+
+  const { event, data } = envelope.data;
+
+  if (event === "presence.update") {
+    return parsePresence(data);
+  }
+
+  if (event !== "messages.upsert") {
     return { action: "ignore", reason: "not-a-message" };
   }
 
-  const { key, pushName, message } = data;
+  const parsed = messageDataSchema.safeParse(data);
+  if (!parsed.success) {
+    return { action: "ignore", reason: "not-a-message" };
+  }
+
+  const { key, pushName, message } = parsed.data;
   const { remoteJid } = key;
 
   if (remoteJid.endsWith("@g.us")) {

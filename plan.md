@@ -416,9 +416,9 @@ Separação intencional: `logic/` **não faz I/O nem segura timer** (claude.md �
 de timestamps; quem agenda `setTimeout` é a camada de fila.
 
 ### 3.1 Máquina de estados (`logic/conversation.ts`)
-- [ ] Estados exatamente como no claude.md §6:
+- [x] Estados exatamente como no claude.md §6:
   `idle · collecting · awaitingConfirmation · humanHandling · closed`
-- [ ] Tabela de transições válidas (única fonte, exportada para testes):
+- [x] Tabela de transições válidas (única fonte, exportada para testes):
 
 | De | Para | Gatilho |
 |---|---|---|
@@ -430,45 +430,45 @@ de timestamps; quem agenda `setTimeout` é a camada de fila.
 | qualquer | `closed` | timeout de inatividade |
 | `closed` | `idle` | nova mensagem chega (conversa "renasce" limpa) |
 
-- [ ] Transição inválida: log `warn` + no-op (nunca corromper estado)
-- [ ] Toda transição logada com `phone`, estado anterior e novo (auditoria)
-- [ ] Upsert de `conversations` na primeira mensagem de um número
+- [x] Transição inválida: log `warn` + no-op (nunca corromper estado)
+- [x] Toda transição logada com `phone`, estado anterior e novo (auditoria)
+- [x] Upsert de `conversations` na primeira mensagem de um número
 
 ### 3.2 Debounce
-- [ ] Buffer em memória por telefone; cada mensagem inbound reinicia a janela
-- [ ] `DEBOUNCE_SECONDS` (default 10) e `DEBOUNCE_MAX_SECONDS` (default 45)
+- [x] Buffer em memória por telefone; cada mensagem inbound reinicia a janela
+- [x] `DEBOUNCE_SECONDS` (default 10) e `DEBOUNCE_MAX_SECONDS` (default 45)
   entram no schema de env agora
-- [ ] Janela venceu → concatenar as mensagens do bloco em um único texto de
+- [x] Janela venceu → concatenar as mensagens do bloco em um único texto de
   entrada, na ordem de chegada
-- [ ] Teto de 45s vale mesmo com mensagens pingando (não estender para sempre)
-- [ ] Best-effort: se evento de presença indicar "digitando" quando a janela
+- [x] Teto de 45s vale mesmo com mensagens pingando (não estender para sempre)
+- [x] Best-effort: se evento de presença indicar "digitando" quando a janela
   vence, estender uma vez até o teto (requer assinar `PRESENCE_UPDATE`; se a
   Evolution não entregar presença de forma confiável, seguir sem — não é
   bloqueante)
-- [ ] Ao fechar a janela e antes de processar: `setPresence('composing')`
+- [x] Ao fechar a janela e antes de processar: `setPresence('composing')`
   (claude.md §7)
-- [ ] Atualizar `last_interaction_at` a cada mensagem do usuário
+- [x] Atualizar `last_interaction_at` a cada mensagem do usuário
 
 ### 3.3 Anti-loop (`logic/guards.ts`)
-- [ ] Regra dura (claude.md §7): **bot nunca envia duas mensagens seguidas sem
+- [x] Regra dura (claude.md §7): **bot nunca envia duas mensagens seguidas sem
   resposta do usuário**. Implementação: antes de enviar, consultar a última
   mensagem da conversa em `messages`; se for `outbound` do bot → suprimir e
   logar. Exceção única: notificações de status do Jira (fase 10), que são
   atualizações solicitadas, não conversa
-- [ ] Dedupe por `whatsapp_message_id` (já garantido na fase 2 — referência)
-- [ ] Estado explícito no banco (3.1) fecha a terceira camada do claude.md §7
+- [x] Dedupe por `whatsapp_message_id` (já garantido na fase 2 — referência)
+- [x] Estado explícito no banco (3.1) fecha a terceira camada do claude.md §7
 
 ### 3.4 Timeout e encerramento
-- [ ] `CONVERSATION_TIMEOUT_HOURS` (default 24) no schema de env
-- [ ] Sweeper: `setInterval` (a cada 10 min) marca `closed` conversas com
+- [x] `CONVERSATION_TIMEOUT_HOURS` (default 24) no schema de env
+- [x] Sweeper: `setInterval` (a cada 10 min) marca `closed` conversas com
   `last_interaction_at` vencida e **limpa `partial_data`** (claude.md §7 — a
   pessoa não pode voltar dias depois num contexto velho)
-- [ ] Mensagem nova em conversa `closed` → `idle` com contexto zerado
+- [x] Mensagem nova em conversa `closed` → `idle` com contexto zerado
 
 ### Testes
-- [ ] Tabela de transições: todas as válidas passam, inválidas são no-op
-- [ ] Debounce puro: sequências de timestamps → decisões (esperar/processar)
-- [ ] Guard anti-loop: última outbound do bot → envio suprimido
+- [x] Tabela de transições: todas as válidas passam, inválidas são no-op
+- [x] Debounce puro: sequências de timestamps → decisões (esperar/processar)
+- [x] Guard anti-loop: última outbound do bot → envio suprimido
 
 ### Validação
 - Mandar 3 fixtures do mesmo número em 5s → um único bloco processado, uma
@@ -479,6 +479,61 @@ de timestamps; quem agenda `setTimeout` é a camada de fila.
 ### Critério de conclusão
 - Rajadas viram bloco único; estado persiste e sobrevive a restart; é impossível
   o bot responder duas vezes seguidas.
+
+### Notas de execução (2026-09-03)
+
+**Desvio consciente no anti-loop (3.3).** A regra literal — "última mensagem é
+outbound do bot → suprime" — quebra junto com o debounce. Cenário: usuário
+manda "oi" (10:00:00), a janela fecha e o bot começa a processar (10:00:10), o
+usuário complementa (10:00:11), a resposta ao primeiro bloco é gravada
+(10:00:12); quando o segundo bloco fecha (10:00:21) a última mensagem do banco
+é a do bot, **mais nova** que a do usuário, e a complementação morreria em
+silêncio. Digitar enquanto espera é comum.
+
+Implementado: suprimir só quando **nada do usuário motivou o envio** (bloco
+vazio) ou quando **já há 2 respostas do bot sem resposta** (loop real). A
+garantia contra resposta dupla passa a ser estrutural — dedupe por
+`whatsapp_message_id` mais um bloco gerando exatamente uma resposta. Preserva a
+intenção do claude.md §7; há teste dedicado fixando a decisão.
+
+**Presença (3.2) — confirmada no código-fonte da Evolution, não suposta:**
+- O evento repassa o payload do Baileys sem alterar:
+  `data.presences[<jid>].lastKnownPresence`.
+- A presença **só chega depois de `presenceSubscribe`**, e a Evolution não expõe
+  endpoint para isso — mas `POST /chat/sendPresence` chama `presenceSubscribe`
+  em todos os caminhos. Ou seja, o próprio "digitando" que o claude.md §7 já
+  exige é o que nos inscreve na presença do contato.
+- **Consequência aceita:** no primeiro bloco de uma conversa ainda não há
+  inscrição, então a extensão por "digitando" vale a partir do segundo bloco.
+- **Bug corrigido no `setPresence`:** a Evolution faz `composing` → espera
+  `delay` → `paused`. Enviávamos sem `delay`, então o indicador era cancelado no
+  mesmo instante e nunca aparecia. Agora vai com 2500 ms e é disparado **sem
+  `await`** — a Evolution segura a resposta HTTP durante o delay, e esperar
+  somaria 2,5 s a cada resposta.
+
+**Bug pego por teste:** a janela de frescor da presença estava em 15 s, maior
+que a própria janela de debounce (10 s) — qualquer "digitando" recebido durante
+a janela a estenderia, anulando o propósito. Reduzida para 5 s, que é o que
+significa "está digitando agora".
+
+**Validado com 91 testes verdes** (incluindo 5 de banco) e ponta a ponta com
+instância isolada na porta 3001:
+- **Agrupamento**: 3 mensagens em 4 s → 1 bloco (`blockSize: 3`), texto
+  concatenado na ordem, **1 resposta**; banco com 3 inbound e 1 outbound. Antes
+  da fase 3 isso gerava 3 respostas.
+- **Teto**: mensagem a cada 4 s por 28 s → bloco liberado ao bater o teto com 5
+  mensagens, sem nunca cumprir o silêncio.
+- **Anti-loop**: mensagem nova logo após uma resposta → **as duas respondidas**
+  (é a regressão que a decisão acima evita).
+- **Presença**: "digitando" 2 s antes do fim estendeu a janela uma vez
+  (`extended: true`), e só uma.
+- **Estado**: conversas criadas em `idle` com `partial_data` vazio; sweeper sem
+  erros. Fechamento por inatividade e reset `closed` → `idle` cobertos por teste
+  de integração.
+
+**Configuração externa aplicada:** o webhook da instância `comerx` agora assina
+`MESSAGES_UPSERT` e `PRESENCE_UPDATE`. O procedimento ficou documentado no
+`.env.example` para quem clonar.
 
 ---
 
@@ -1064,7 +1119,7 @@ Funcionalidade (testável de ponta a ponta):
 - [ ] Consulta e notifica status de chamado
 - [ ] Áudio em PT transcrito localmente; imagem vai ao modelo e ao chamado
 - [ ] Humano assume → bot pausa; usuário pede humano → pausa + notificação
-- [ ] Conversa expira e renasce limpa; nenhum loop possível
+- [x] Conversa expira e renasce limpa; nenhum loop possível (fase 3)
 
 Qualidade técnica (invariantes — claude.md §8):
 - [x] Webhook responde imediato; processamento 100% assíncrono (fase 2)
@@ -1113,15 +1168,13 @@ fase correspondente:
 
 ## Próximo passo (atualizado em 2026-09-03)
 
-Fases 0, 1 e 2 concluídas e validadas com WhatsApp real.
+Fases 0, 1, 2 e 3 concluídas e validadas.
 
-Correção de `@lid` (`key.remoteJidAlt`) aplicada — ver o fim da fase 2.
-
-Em andamento: **fase 3 — estado da conversa, debounce e anti-loop**, que substitui
-a confirmação fixa de `processMessage` pelo agrupamento de mensagens e pela
-máquina de estados. Hoje cada mensagem gera uma resposta separada: três
-mensagens seguidas viram três confirmações, exatamente o que o debounce
-resolve.
+Próxima: **fase 4 — identificação do colaborador e onboarding**. A conversa já
+existe e tem estado, mas ainda não sabe quem é a pessoa: falta consultar
+`employees` pelo telefone, conduzir o cadastro de quem não existe (nome e setor,
+uma única vez) e importar o CSV inicial. É lá também que entra o aviso de
+transparência LGPD na primeira interação (claude.md §11).
 
 ### Ambiente do mantenedor (funcionando)
 - Supabase `bwemqvwulovzhgjhwrmv` via session pooler; migrations aplicadas.
