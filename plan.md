@@ -778,8 +778,38 @@ passariam de 200 linhas, o limite do claude.md §3.
 - **Falha do provedor**: 3 tentativas com backoff de 1 s e 5 s, `error` no log e
   **uma única** mensagem de dificuldade técnica, sem loop.
 
-**Não validado com a API real** — depende da chave do Google AI Studio
-(aistudio.google.com/apikey) no `.env`. O free tier do `gemini-3.8-flash` cobre.
+**Validado com a API real e WhatsApp real (2026-09-04).** Conversa completa:
+onboarding (nome + setor) → `collectTicketData` conduzindo uma coleta de três
+perguntas encadeadas sobre um erro no sistema VIC (navegador ou módulo → tem
+mensagem de erro? → pode mandar um print?). A qualidade da coleta guiada
+superou a expectativa para uma fase que ainda não tem o agente de ticket.
+
+**Modelo trocado para `gemini-3.1-flash-lite`.** `gemini-3.8-flash` e
+`gemini-3.7-flash` devolveram **503 (alta demanda)** de forma persistente; o
+flash-lite respondeu na hora e ainda é o mais barato dos três. Registrado no
+`.env.example` para quem clonar não tropeçar no mesmo 503.
+
+### `[~]` Achado para o ajuste de prompt: falta ação para conversa fiada
+
+Na conversa real, a mensagem **"beleza"** foi rejeitada com `no-tool-call`: o
+modelo respondeu em texto porque nenhuma das quatro ações do claude.md §7 cobre
+um "ok, entendi". O usuário recebeu a resposta neutra, que soa como erro quando
+na verdade o contrato funcionou como projetado.
+
+Três saídas possíveis, todas para decisão do mantenedor no ajuste de prompt:
+
+1. **Forçar escolha de ferramenta** via `functionCallingConfig: { mode: ANY }`
+   do Gemini. Não mexe no claude.md §7, mas obriga o modelo a encaixar uma
+   saudação em alguma das quatro — provavelmente `answerFaq` com algo genérico.
+2. **Acrescentar uma quinta ação** (`acknowledge` / `smallTalk`). Mais honesto
+   com o que acontece de verdade numa conversa de WhatsApp, mas **altera o
+   claude.md §7**, que hoje fixa quatro.
+3. **Aceitar texto puro como resposta ao usuário** quando não houver tool. É o
+   caminho mais simples, mas abre uma porta que o §8 fechou de propósito: a
+   saída passaria a chegar ao usuário sem passar pelo contrato.
+
+Recomendação: opção 2 se conversa fiada for comum na prática, opção 1 se for
+rara. Medir com o log de `no-tool-call` antes de decidir.
 
 ---
 
