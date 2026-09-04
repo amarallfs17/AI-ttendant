@@ -1,3 +1,5 @@
+import type { ConversationState } from "./conversation.js";
+
 export interface MessageDirection {
   direction: "inbound" | "outbound";
   source: "user" | "bot" | "human";
@@ -53,4 +55,45 @@ export function shouldSuppressReply(input: {
     return { suppress: true, reason: "loop-detected" };
   }
   return { suppress: false };
+}
+
+/** Irreversible actions get a ceiling: a loop must not open ticket after ticket. */
+export const MAX_TICKETS_PER_HOUR = 3;
+
+export type ActionBlockReason =
+  | "conversation-paused"
+  | "human-handling"
+  | "ticket-rate-limit";
+
+export type ActionPermission =
+  | { allowed: true }
+  | { allowed: false; reason: ActionBlockReason };
+
+/**
+ * Decides whether the agent may act at all, before the action itself is
+ * considered (claude.md §8).
+ *
+ * `paused_until` and `humanHandling` are written by the handoff in phase 9;
+ * honouring them here means the bot goes quiet the moment a person takes over,
+ * with no further change to this file.
+ */
+export function canActAutomatically(input: {
+  state: ConversationState;
+  pausedUntil: Date | null;
+  now: Date;
+}): ActionPermission {
+  if (input.state === "humanHandling") {
+    return { allowed: false, reason: "human-handling" };
+  }
+  if (input.pausedUntil && input.pausedUntil > input.now) {
+    return { allowed: false, reason: "conversation-paused" };
+  }
+  return { allowed: true };
+}
+
+/** Guards the one irreversible action the agent can take on its own. */
+export function canCreateTicket(ticketsInLastHour: number): ActionPermission {
+  return ticketsInLastHour >= MAX_TICKETS_PER_HOUR
+    ? { allowed: false, reason: "ticket-rate-limit" }
+    : { allowed: true };
 }

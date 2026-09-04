@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canActAutomatically,
+  canCreateTicket,
   countTrailingBotMessages,
+  MAX_TICKETS_PER_HOUR,
   shouldSuppressReply,
   type MessageDirection,
 } from "./guards.js";
@@ -45,4 +48,51 @@ test("suppresses once two bot messages are already unanswered", () => {
 test("still answers when the user wrote while the bot was replying", () => {
   const decision = shouldSuppressReply({ blockSize: 1, trailingBotMessages: 1 });
   assert.equal(decision.suppress, false);
+});
+
+const now = new Date("2026-09-04T12:00:00Z");
+
+test("acts normally on an idle conversation", () => {
+  const permission = canActAutomatically({ state: "idle", pausedUntil: null, now });
+  assert.equal(permission.allowed, true);
+});
+
+// Phase 9 writes these fields; honouring them here means the bot goes quiet the
+// moment a person takes over, with no further change to this file.
+test("stays quiet once a human has taken over", () => {
+  const permission = canActAutomatically({ state: "humanHandling", pausedUntil: null, now });
+  assert.equal(permission.allowed, false);
+  assert.equal(permission.allowed === false && permission.reason, "human-handling");
+});
+
+test("stays quiet while the conversation is paused", () => {
+  const permission = canActAutomatically({
+    state: "idle",
+    pausedUntil: new Date("2026-09-04T12:30:00Z"),
+    now,
+  });
+  assert.equal(permission.allowed, false);
+  assert.equal(permission.allowed === false && permission.reason, "conversation-paused");
+});
+
+test("resumes once the pause has expired", () => {
+  const permission = canActAutomatically({
+    state: "idle",
+    pausedUntil: new Date("2026-09-04T11:30:00Z"),
+    now,
+  });
+  assert.equal(permission.allowed, true);
+});
+
+test("allows tickets below the hourly ceiling", () => {
+  assert.equal(canCreateTicket(0).allowed, true);
+  assert.equal(canCreateTicket(MAX_TICKETS_PER_HOUR - 1).allowed, true);
+});
+
+// Creating a ticket is the one irreversible action the agent takes alone
+// (claude.md §8), so a loop must not be able to spam the board.
+test("blocks once the hourly ticket ceiling is reached", () => {
+  const permission = canCreateTicket(MAX_TICKETS_PER_HOUR);
+  assert.equal(permission.allowed, false);
+  assert.equal(permission.allowed === false && permission.reason, "ticket-rate-limit");
 });

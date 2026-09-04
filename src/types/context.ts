@@ -4,6 +4,7 @@ import type pg from "pg";
 import type { Env } from "../config/env.js";
 import type { DebounceBuffer } from "../queue/debounceBuffer.js";
 import type { Queue } from "../queue/index.js";
+import type { AiProvider } from "../services/ai/provider.js";
 import type { EvolutionService } from "../services/evolution.js";
 
 /**
@@ -17,4 +18,7 @@ export interface AppContext {
   queue: Queue;
   debounce: DebounceBuffer;
   evolution: EvolutionService;
+  ai: AiProvider;
+  /** Triage prompt, read once at boot. */
+  triagePrompt: string;
 }

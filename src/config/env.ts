@@ -27,6 +27,12 @@ const envSchema = z.object({
   // hardcoding the maintainer's country would break every other clone
   // (claude.md §1).
   DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).default("55"),
+
+  // Only gemini is implemented; claude is reserved so the value is stable when
+  // its provider lands. The factory fails fast on an unimplemented choice.
+  AI_PROVIDER: z.enum(["gemini", "claude"]).default("gemini"),
+  AI_API_KEY: z.string().min(1),
+  AI_MODEL: z.string().min(1).default("gemini-3.8-flash"),
 });
 
 export type Env = z.infer<typeof envSchema>;

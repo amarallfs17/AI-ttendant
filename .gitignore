@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Prompts e base de conhecimento: os exemplos são versionados, a customização
+# com conteúdo interno da empresa nunca vai para o repositório (claude.md §9).
+prompts/*.md
+!prompts/*.example.md
+knowledge/*.md
+!knowledge/*.example.md
