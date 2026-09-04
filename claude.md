@@ -490,11 +490,25 @@ internos conhecidos ? bans miram disparo em massa para desconhecidos). A camada
 troca de peça, não reescrita.
 
 **LGPD.** O sistema armazena conversas de colaboradores e envia esse conteúdo a
-um provedor de LLM. Necessários: política de retenção (descartar conversas após
-X dias) e aviso na primeira interação de que o atendimento é automatizado.
+um provedor de LLM. Necessária: política de retenção (descartar conversas após
+X dias) — fase 11. O aviso de que o atendimento é automatizado é dado por
+comunicação interna prévia, não pelo bot (ver Transparência abaixo).
 
-**Transparência.** A primeira mensagem deve deixar claro que é um agente
-automatizado e como pedir atendimento humano.
+**Transparência — FECHADA na fase 4: o aviso NÃO é enviado pelo bot.**
+Decisão do mantenedor: os colaboradores são informados previamente por
+comunicação interna de que o atendimento pelo número corporativo é
+automatizado. A obrigação de transparência continua sendo cumprida, mas fora
+do sistema.
+
+Portanto **não implementar** mensagem automática de "este é um atendimento
+automatizado" na primeira interação, nem rastreamento de quem já foi avisado.
+Se essa decisão mudar, o aviso volta como uma coluna em `employees` (uma vez
+por pessoa) — não em `partial_data`, que é limpo a cada encerramento e faria o
+aviso se repetir.
+
+O pedido explícito de atendimento humano continua existindo como ação do
+agente (`escalateToHuman`, fase 9); o que saiu foi apenas o aviso não
+solicitado.
 
 **Horário de atendimento.** Fora do horário configurado, o bot atende mas avisa
 que um humano só verá no próximo expediente ? senão a pessoa fica esperando.

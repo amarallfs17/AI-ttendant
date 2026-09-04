@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizePhone } from "./phone.js";
+
 export type MessageType = "text" | "audio" | "image";
 
 export interface InboundMessage {
@@ -54,22 +56,6 @@ const messageDataSchema = z.object({
   pushName: z.string().optional(),
   message: z.record(z.string(), z.unknown()).nullish(),
 });
-
-/**
- * Extracts the phone number from an Evolution/Baileys JID.
- *
- * Only `@s.whatsapp.net` JIDs carry a phone number. A `@lid` holds an internal
- * linked-identity number instead, so it resolves to null here — see
- * `resolvePhoneJid`, which picks the right JID before calling this.
- */
-export function normalizePhone(jid: string): string | null {
-  const [user] = jid.split("@");
-  if (!user || !jid.endsWith("@s.whatsapp.net")) {
-    return null;
-  }
-  const digits = user.replace(/\D/g, "");
-  return digits.length > 0 ? digits : null;
-}
 
 /**
  * Picks the JID that actually identifies the person.

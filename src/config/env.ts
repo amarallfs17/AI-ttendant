@@ -22,6 +22,11 @@ const envSchema = z.object({
   DEBOUNCE_SECONDS: z.coerce.number().positive().default(10),
   DEBOUNCE_MAX_SECONDS: z.coerce.number().positive().default(45),
   CONVERSATION_TIMEOUT_HOURS: z.coerce.number().nonnegative().default(24),
+
+  // Applied to CSV numbers that arrive without one. Configurable because
+  // hardcoding the maintainer's country would break every other clone
+  // (claude.md §1).
+  DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).default("55"),
 });
 
 export type Env = z.infer<typeof envSchema>;

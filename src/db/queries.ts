@@ -3,6 +3,7 @@ import type pg from "pg";
 import type { ConversationState } from "../logic/conversation.js";
 import type { MessageDirection } from "../logic/guards.js";
 import type { InboundMessage } from "../logic/inboundMessage.js";
+import type { Employee } from "../logic/onboarding.js";
 
 /**
  * Inserts the inbound message, using the unique constraint on
@@ -49,6 +50,83 @@ export async function touchConversation(
   );
 
   return result.rows[0] ?? { state: "idle" };
+}
+
+export async function getEmployee(
+  pool: pg.Pool,
+  phone: string,
+): Promise<Employee | null> {
+  const result = await pool.query<Employee>(
+    `select phone, name, department, email, source
+     from employees where phone = $1`,
+    [phone],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+/** Registers someone the bot met through the chat (claude.md §7). */
+export async function insertEmployee(
+  pool: pg.Pool,
+  employee: { phone: string; name: string; department: string },
+): Promise<void> {
+  await pool.query(
+    `insert into employees (phone, name, department, source)
+     values ($1, $2, $3, 'auto')
+     on conflict (phone) do nothing`,
+    [employee.phone, employee.name, employee.department],
+  );
+}
+
+/**
+ * Loads the roster from a spreadsheet. A record the bot had created on its own
+ * is promoted to `csv`, since the imported file is the more reliable source.
+ */
+export async function upsertEmployeeFromCsv(
+  pool: pg.Pool,
+  employee: {
+    phone: string;
+    name: string;
+    department: string;
+    email: string | null;
+  },
+): Promise<"inserted" | "updated"> {
+  const result = await pool.query<{ inserted: boolean }>(
+    `insert into employees (phone, name, department, email, source)
+     values ($1, $2, $3, $4, 'csv')
+     on conflict (phone) do update set
+       name = excluded.name,
+       department = excluded.department,
+       email = coalesce(excluded.email, employees.email),
+       source = 'csv'
+     returning (xmax = 0) as inserted`,
+    [employee.phone, employee.name, employee.department, employee.email],
+  );
+
+  return result.rows[0]?.inserted ? "inserted" : "updated";
+}
+
+export async function getConversationPartialData(
+  pool: pg.Pool,
+  phone: string,
+): Promise<Record<string, unknown>> {
+  const result = await pool.query<{ partial_data: Record<string, unknown> }>(
+    "select partial_data from conversations where phone = $1",
+    [phone],
+  );
+
+  return result.rows[0]?.partial_data ?? {};
+}
+
+export async function updateConversationPartialData(
+  pool: pg.Pool,
+  phone: string,
+  partialData: Record<string, unknown>,
+): Promise<void> {
+  await pool.query(
+    "update conversations set partial_data = $2::jsonb where phone = $1",
+    [phone, JSON.stringify(partialData)],
+  );
 }
 
 export async function updateConversationState(

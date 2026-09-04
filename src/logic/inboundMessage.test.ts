@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { normalizePhone, parseWebhookEvent } from "./inboundMessage.js";
+import { parseWebhookEvent } from "./inboundMessage.js";
 
 function event(overrides: {
   remoteJid?: string;
@@ -130,21 +130,6 @@ for (const [name, payload, reason] of ignoredCases) {
     assert.equal(decision.action === "ignore" && decision.reason, reason);
   });
 }
-
-test("normalizePhone strips the JID suffix", () => {
-  assert.equal(normalizePhone("5511999990001@s.whatsapp.net"), "5511999990001");
-});
-
-test("normalizePhone rejects lid and group JIDs", () => {
-  assert.equal(normalizePhone("182736451@lid"), null);
-  assert.equal(normalizePhone("123-160@g.us"), null);
-});
-
-test("normalizePhone rejects malformed input", () => {
-  assert.equal(normalizePhone(""), null);
-  assert.equal(normalizePhone("@s.whatsapp.net"), null);
-  assert.equal(normalizePhone("5511999990001"), null);
-});
 
 // Guards against the checked-in fixtures drifting away from the parser.
 const fixtureExpectations: ReadonlyArray<[string, string]> = [

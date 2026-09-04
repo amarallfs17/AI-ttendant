@@ -554,14 +554,14 @@ scripts/importEmployees.ts
   (webhook, CSV, envio): somente dígitos, com DDI (`5511999999999`), extraído
   do `remoteJid` da Evolution (`5511999999999@s.whatsapp.net`)
   → **antecipada para a fase 2**: `normalizePhone` em `logic/inboundMessage.ts`
-- [ ] Estender para os formatos do CSV (com máscara, sem DDI, com espaços) —
+- [x] Estender para os formatos do CSV (com máscara, sem DDI, com espaços) —
   a versão da fase 2 só trata JID da Evolution e rejeita o resto
 
 ### 4.2 Identificação e onboarding (`logic/onboarding.ts`)
-- [ ] Toda mensagem: buscar `employees` pelo telefone normalizado
-- [ ] Conhecido → contexto do colaborador (nome, setor) vai junto para a IA e
+- [x] Toda mensagem: buscar `employees` pelo telefone normalizado
+- [x] Conhecido → contexto do colaborador (nome, setor) vai junto para a IA e
   para o ticket
-- [ ] Desconhecido → fluxo determinístico (sem IA), com sub-estado em
+- [x] Desconhecido → fluxo determinístico (sem IA), com sub-estado em
   `partial_data.onboarding`:
   1. Primeira mensagem: aviso de transparência LGPD (atendimento automatizado +
      como pedir humano — claude.md §11) + pedir o nome. Se `pushName` existir,
@@ -569,23 +569,23 @@ scripts/importEmployees.ts
   2. Resposta → pedir o setor
   3. Resposta → gravar em `employees` com `source = 'auto'` e seguir o fluxo
      normal da mensagem original
-- [ ] Perguntar **uma única vez**: colaborador já cadastrado nunca repassa pelo
+- [x] Perguntar **uma única vez**: colaborador já cadastrado nunca repassa pelo
   onboarding, mesmo em conversa nova
 
 ### 4.3 Importação de CSV (`scripts/importEmployees.ts`)
-- [ ] `npm run import:employees -- caminho.csv`, colunas
+- [x] `npm run import:employees -- caminho.csv`, colunas
   `phone,name,department,email`
-- [ ] Parser CSV próprio simples (sem lib — arquivos controlados pelo mantenedor)
-- [ ] Upsert controlado: existente com `source='csv'` atualiza; existente com
+- [x] Parser CSV próprio simples (sem lib — arquivos controlados pelo mantenedor)
+- [x] Upsert controlado: existente com `source='csv'` atualiza; existente com
   `source='auto'` atualiza e promove para `csv`; relatório final
   (inseridos/atualizados/ignorados/linhas inválidas)
-- [ ] Telefones passam pela normalização de 4.1; linha inválida não aborta o
+- [x] Telefones passam pela normalização de 4.1; linha inválida não aborta o
   restante
 
 ### Testes
-- [ ] Normalização de telefone
-- [ ] Onboarding: sequência de mensagens → estados do sub-fluxo → insert final
-- [ ] Import: fixture CSV com casos válidos e inválidos
+- [x] Normalização de telefone
+- [x] Onboarding: sequência de mensagens → estados do sub-fluxo → insert final
+- [x] Import: fixture CSV com casos válidos e inválidos
 
 ### Validação
 - Fixture de número desconhecido → bot pergunta nome/setor e cadastra
@@ -594,7 +594,53 @@ scripts/importEmployees.ts
 
 ### Critério de conclusão
 - Usuário conhecido identificado em toda mensagem; desconhecido cadastrado em
-  uma conversa fluida; aviso LGPD entregue na primeira interação.
+  uma conversa fluida.
+
+### Notas de execução (2026-09-04)
+
+**Aviso de transparência removido do bot (decisão do mantenedor).** Os
+colaboradores são informados previamente por comunicação interna. O claude.md
+§11 foi **editado** para registrar isso como decisão fechada — deixá-lo como
+estava faria uma sessão futura reimplementar o aviso achando que era requisito
+pendente. A retenção de dados, o outro item de LGPD, continua na fase 11.
+Efeito colateral bom: nenhuma coluna nova, nenhuma migration.
+
+**Setor é texto livre** e **`DEFAULT_COUNTRY_CODE`** (default `55`) aplica o DDI
+aos telefones do CSV — hardcodar `55` violaria o claude.md §1.
+
+**Onboarding não criou estado novo:** os cinco estados do claude.md §6 seguem
+fechados; o sub-fluxo mora em `partial_data.onboarding` com a conversa em
+`idle`, e a chave é apagada ao cadastrar.
+
+**Duas armadilhas encontradas e corrigidas:**
+1. **DDD 55 vs país +55.** Decidir pelo prefixo trataria `55999887766`
+   (Santa Maria/RS) como já internacional, gravando um telefone inalcançável
+   para uma região inteira. `normalizeRawPhone` decide por **comprimento**:
+   10-11 dígitos é nacional e recebe o DDI; 12+ já o traz. Há teste fixando o
+   caso.
+2. **`"🔥".length === 2`** em JavaScript (par substituto UTF-16), então um
+   emoji sozinho passava como nome válido. A validação passou a contar
+   caracteres reais (`[...value].length`), e o truncamento também, para nunca
+   partir um caractere ao meio.
+
+**Guarda contra armadilha de fluxo:** quem ignora a pergunta e repete o problema
+("socorro preciso urgente") teria isso gravado como nome. Após 2 recusas o valor
+é aceito truncado — insistir para sempre prenderia a pessoa num formulário, o
+que é pior que um dado imperfeito. Coberto por teste.
+
+**Validado — 130 testes verdes** (13 de banco) e ponta a ponta:
+- **Onboarding real**: número desconhecido escreve → bot oferece o nome do
+  perfil para confirmar → "sim" → pergunta o setor → "Financeiro" → cadastra
+  com `source='auto'` e responde a mensagem original. `partial_data` volta a
+  `{}`.
+- **Sem repetir**: a mensagem seguinte do mesmo número não passa mais pelo
+  cadastro.
+- **Import do CSV**: 5 inseridos e 3 inválidos com linha e motivo; máscara,
+  zero à esquerda, campo entre aspas com vírgula e DDD 55 tratados
+  corretamente. Reimportar o mesmo arquivo dá 5 atualizados, 0 inseridos.
+- **Promoção**: importar alguém que o bot havia cadastrado muda `source` de
+  `auto` para `csv`.
+- **Cabeçalho inválido**: mensagem clara e saída com código 1.
 
 ---
 
@@ -1113,7 +1159,7 @@ sem nada do ambiente do mantenedor (claude.md §1, §9).
 ## Aceite final do projeto
 
 Funcionalidade (testável de ponta a ponta):
-- [ ] Recebe mensagens do WhatsApp e identifica ou cadastra o colaborador
+- [x] Recebe mensagens do WhatsApp e identifica ou cadastra o colaborador (fase 4)
 - [ ] Responde FAQ com base no material, sem inventar
 - [ ] Abre ticket no Jira com confirmação, dados do colaborador e anexos
 - [ ] Consulta e notifica status de chamado
@@ -1166,15 +1212,14 @@ fase correspondente:
 
 ---
 
-## Próximo passo (atualizado em 2026-09-03)
+## Próximo passo (atualizado em 2026-09-04)
 
-Fases 0, 1, 2 e 3 concluídas e validadas.
+Fases 0 a 4 concluídas e validadas.
 
-Próxima: **fase 4 — identificação do colaborador e onboarding**. A conversa já
-existe e tem estado, mas ainda não sabe quem é a pessoa: falta consultar
-`employees` pelo telefone, conduzir o cadastro de quem não existe (nome e setor,
-uma única vez) e importar o CSV inicial. É lá também que entra o aviso de
-transparência LGPD na primeira interação (claude.md §11).
+Próxima: **fase 5 — camada de IA, triagem e contrato de ações**. É a virada do
+projeto: a confirmação fixa dá lugar a uma decisão real entre responder FAQ,
+coletar dados de ticket, consultar chamado ou escalar para humano. O
+colaborador identificado na fase 4 (nome e setor) passa a ir no prompt.
 
 ### Ambiente do mantenedor (funcionando)
 - Supabase `bwemqvwulovzhgjhwrmv` via session pooler; migrations aplicadas.
