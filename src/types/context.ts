@@ -19,6 +19,8 @@ export interface AppContext {
   debounce: DebounceBuffer;
   evolution: EvolutionService;
   ai: AiProvider;
-  /** Triage prompt, read once at boot. */
+  /** Prompts and knowledge base, read once at boot. */
   triagePrompt: string;
+  faqPrompt: string;
+  knowledgeBase: string;
 }

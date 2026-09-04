@@ -33,6 +33,12 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(["gemini", "claude"]).default("gemini"),
   AI_API_KEY: z.string().min(1),
   AI_MODEL: z.string().min(1).default("gemini-3.8-flash"),
+
+  // Optional: current reminders the agent should know about, fetched from a raw
+  // markdown URL. Unset means the feature is simply off.
+  CONTEXT_MD_URL: z.url({ protocol: /^https?$/ }).optional(),
+  // Only when the GitHub webhook is used; without it the route is not mounted.
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -59,17 +59,24 @@ test("maps history to provider roles, oldest first", () => {
 
 test("accepts a valid tool call", () => {
   const decision = interpretCompletion({
-    toolCall: { name: "answerFaq", input: { answer: "É só reiniciar." } },
+    toolCall: { name: "collectTicketData", input: { question: "Desde quando?" } },
   });
 
   assert.equal(decision.kind, "action");
-  assert.equal(decision.kind === "action" && decision.action.name, "answerFaq");
-  assert.equal(
-    decision.kind === "action" && decision.action.name === "answerFaq"
-      ? decision.action.input.answer
-      : null,
-    "É só reiniciar.",
-  );
+  assert.equal(decision.kind === "action" && decision.action.name, "collectTicketData");
+});
+
+// answerFaq is a routing signal now; the FAQ agent writes the answer.
+test("accepts answerFaq as a bare routing signal", () => {
+  const decision = interpretCompletion({ toolCall: { name: "answerFaq", input: {} } });
+  assert.equal(decision.kind, "action");
+});
+
+test("rejects answerFaq carrying an answer written by triage", () => {
+  const decision = interpretCompletion({
+    toolCall: { name: "answerFaq", input: { answer: "resposta sem base" } },
+  });
+  assert.equal(decision.kind, "rejected");
 });
 
 test("accepts checkTicketStatus with no arguments", () => {
@@ -90,7 +97,7 @@ test("rejects a tool the contract does not define", () => {
 
 test("rejects a known tool with input outside the schema", () => {
   const decision = interpretCompletion({
-    toolCall: { name: "answerFaq", input: { answer: "" } },
+    toolCall: { name: "acknowledge", input: { reply: "" } },
   });
 
   assert.equal(decision.kind, "rejected");

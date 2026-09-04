@@ -6,11 +6,10 @@ conhecimento e abre/acompanha chamados no Jira, conversando pela Evolution API.
 - Arquitetura e decisões fechadas: [claude.md](claude.md)
 - Plano de execução por fases: [plan.md](plan.md)
 
-> **Status:** Fases 1 e 2 concluídas — servidor Fastify, Postgres com migrations
-> no boot, Docker, e o webhook da Evolution ingerindo mensagens com
-> deduplicação, fila com lock por conversa e retry com backoff. A resposta ainda
-> é uma confirmação fixa: o agrupamento de mensagens chega na fase 3 e a IA na
-> fase 5. README completo chega na fase 12.
+> **Status:** Fases 1 a 6 concluídas — o agente identifica o colaborador,
+> agrupa rajadas de mensagens e decide entre responder com a base de
+> conhecimento, coletar dados de chamado, consultar chamado, escalar para
+> humano ou apenas reconhecer a mensagem. A abertura no Jira chega na fase 7.
 
 ## Rodar em desenvolvimento
 
@@ -34,6 +33,19 @@ curl -X POST -H "Content-Type: application/json" \
   -d @fixtures/messagesUpsert.text.json \
   http://localhost:3000/webhook/whatsapp
 ```
+
+## Base de conhecimento
+
+O agente só responde o que estiver em [knowledge/faq.example.md](knowledge/faq.example.md).
+Copie para `knowledge/faq.md` (ignorado pelo git) e ponha o conteúdo real da sua
+empresa — o que não estiver lá vira oferta de chamado, nunca resposta inventada.
+Os prompts seguem o mesmo padrão em [prompts/](prompts/). Os arquivos são lidos
+no boot: alterou, reinicie.
+
+Para avisos do momento ("o sistema X está em manutenção hoje"), aponte
+`CONTEXT_MD_URL` para um markdown cru no GitHub — ele tem prioridade sobre a
+base de conhecimento. Com `GITHUB_WEBHOOK_SECRET` configurado, um push atualiza
+na hora em vez de esperar os 10 minutos do cache.
 
 As fixtures em [fixtures/](fixtures/) cobrem texto, imagem, áudio e os casos
 que o bot ignora por padrão (grupo, status, mensagem do próprio número).

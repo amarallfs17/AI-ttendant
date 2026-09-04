@@ -249,3 +249,29 @@ export async function countRecentTickets(
 
   return Number(result.rows[0]?.count ?? 0);
 }
+
+export async function getCachedContext(
+  pool: pg.Pool,
+  url: string,
+): Promise<{ content: string; updatedAt: Date } | null> {
+  const result = await pool.query<{ content: string; updated_at: Date }>(
+    "select content, updated_at from context_cache where url = $1",
+    [url],
+  );
+
+  const row = result.rows[0];
+  return row ? { content: row.content, updatedAt: row.updated_at } : null;
+}
+
+export async function upsertCachedContext(
+  pool: pg.Pool,
+  url: string,
+  content: string,
+): Promise<void> {
+  await pool.query(
+    `insert into context_cache (url, content, updated_at)
+     values ($1, $2, now())
+     on conflict (url) do update set content = excluded.content, updated_at = now()`,
+    [url, content],
+  );
+}

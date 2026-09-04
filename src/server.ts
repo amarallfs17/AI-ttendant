@@ -7,6 +7,8 @@ import { createDebounceBuffer } from "./queue/debounceBuffer.js";
 import { createQueue } from "./queue/index.js";
 import { processBlock } from "./queue/processMessage.js";
 import { startConversationSweeper } from "./queue/sweeper.js";
+import { registerRawBody } from "./plugins/rawBody.js";
+import { createGithubRoutes } from "./routes/github.js";
 import { createWhatsappRoutes } from "./routes/whatsapp.js";
 import { createAiProvider } from "./services/ai/index.js";
 import { createEvolutionService } from "./services/evolution.js";
@@ -34,9 +36,14 @@ async function main(): Promise<void> {
     },
   });
 
+  // Must be registered before any route: it replaces the JSON parser so
+  // webhook signatures can be verified against the exact bytes received.
+  registerRawBody(app);
+
   const pool = createPool(env.DATABASE_URL);
   await runMigrations(pool, new URL("./db/migrations/", import.meta.url), app.log);
 
+  const promptsDir = new URL("../prompts/", import.meta.url);
   const queue = createQueue(app.log);
 
   // A finished block goes through the queue, so the per-conversation lock from
@@ -61,7 +68,9 @@ async function main(): Promise<void> {
     evolution: createEvolutionService(env),
     ai: createAiProvider(env),
     // Read once: re-reading per message would be I/O for nothing.
-    triagePrompt: await loadPrompt("triage", new URL("../prompts/", import.meta.url)),
+    triagePrompt: await loadPrompt("triage", promptsDir),
+    faqPrompt: await loadPrompt("faq", promptsDir),
+    knowledgeBase: await loadPrompt("faq", new URL("../knowledge/", import.meta.url)),
   };
 
   const stopSweeper = startConversationSweeper(ctx);
@@ -69,6 +78,11 @@ async function main(): Promise<void> {
   app.get("/health", async () => ({ status: "ok", uptime: process.uptime() }));
 
   await app.register(createWhatsappRoutes(ctx));
+
+  if (env.GITHUB_WEBHOOK_SECRET) {
+    await app.register(createGithubRoutes(ctx));
+    app.log.info("github context webhook enabled");
+  }
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "unhandled error");
