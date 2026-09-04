@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+/** An acknowledgement is a courtesy, not a channel for free-form answers. */
+const MAX_ACKNOWLEDGEMENT_LENGTH = 200;
+
 /**
- * The four things the agent may decide to do (claude.md §7).
+ * The five things the agent may decide to do (claude.md §7).
  *
  * These schemas are the single source of truth: `z.toJSONSchema` turns them
  * into the tool declarations sent to the provider, and the same schema
@@ -13,11 +16,17 @@ import { z } from "zod";
  * something to see in the log, not to quietly discard.
  */
 export const actionSchemas = {
-  answerFaq: z.strictObject({
-    answer: z
+  // Routing only: the FAQ agent writes the answer, with the knowledge base in
+  // front of it. Having triage write it too would be the same work twice over
+  // the same material.
+  answerFaq: z.strictObject({}),
+
+  acknowledge: z.strictObject({
+    reply: z
       .string()
       .min(1)
-      .describe("Resposta curta e direta para o colaborador, em pt-BR."),
+      .max(MAX_ACKNOWLEDGEMENT_LENGTH)
+      .describe("Resposta curta para uma mensagem que não pede ação, em pt-BR."),
   }),
 
   collectTicketData: z.strictObject({
@@ -54,7 +63,9 @@ export type Action = {
 
 const descriptions: Record<ActionName, string> = {
   answerFaq:
-    "Responder uma dúvida do colaborador usando a base de conhecimento fornecida. Use quando a resposta estiver no material.",
+    "Encaminhar uma dúvida para ser respondida com a base de conhecimento. Use quando o colaborador perguntar algo que a documentação interna provavelmente cobre — procedimento, configuração, como fazer.",
+  acknowledge:
+    "Responder brevemente a uma mensagem que não pede nenhuma ação: agradecimento, confirmação, saudação ou despedida. Use para 'ok', 'beleza', 'obrigado', 'bom dia'.",
   collectTicketData:
     "Iniciar ou continuar a coleta de informações para abrir um chamado. Use quando houver um problema que precisa de atendimento.",
   checkTicketStatus:

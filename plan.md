@@ -829,37 +829,37 @@ prompts/faq.example.md
 ```
 
 ### 6.1 Base de conhecimento
-- [ ] `knowledge/faq.example.md` versionado com conteúdo genérico funcional
-- [ ] Carregamento com fallback: `knowledge/faq.md` (gitignorado) se existir,
+- [x] `knowledge/faq.example.md` versionado com conteúdo genérico funcional
+- [x] Carregamento com fallback: `knowledge/faq.md` (gitignorado) se existir,
   senão o example — mesmo mecanismo de `services/prompts.ts`
-- [ ] Adicionar ao `.gitignore`: `prompts/*.md`, `!prompts/*.example.md`,
+- [x] Adicionar ao `.gitignore`: `prompts/*.md`, `!prompts/*.example.md`,
   `knowledge/faq.md` (hoje o .gitignore não cobre isso)
 
 ### 6.2 Contexto externo (`services/context.ts`)
-- [ ] `CONTEXT_MD_URL` (opcional) no schema de env; ausente → recurso desligado
+- [x] `CONTEXT_MD_URL` (opcional) no schema de env; ausente → recurso desligado
   silenciosamente
-- [ ] Fetch da URL raw, cache em `context_cache` (tabela da fase 1) com refresh
+- [x] Fetch da URL raw, cache em `context_cache` (tabela da fase 1) com refresh
   por idade (ex.: >10 min → refetch em background; falha de rede → serve cache
   velho e loga)
-- [ ] `routes/github.ts`: `POST /webhook/github` com validação HMAC
+- [x] `routes/github.ts`: `POST /webhook/github` com validação HMAC
   (`X-Hub-Signature-256`, `GITHUB_WEBHOOK_SECRET`) sobre o **corpo bruto** —
   push no repo do MD → refetch imediato. Rota só registrada se o secret estiver
   configurado
-- [ ] Atenção Fastify: guardar raw body para HMAC (addContentTypeParser ou
+- [x] Atenção Fastify: guardar raw body para HMAC (addContentTypeParser ou
   hook) — mesmo mecanismo será reusado no webhook do Jira (fase 10)
 
 ### 6.3 Resposta de FAQ (`logic/faqAgent.ts`)
-- [ ] Prompt (`prompts/faq.example.md`) instruindo: responder curto, apenas com
+- [x] Prompt (`prompts/faq.example.md`) instruindo: responder curto, apenas com
   base no material fornecido; sem resposta no material → dizer que não sabe e
   oferecer abrir chamado ou falar com humano
-- [ ] Entradas: bloco do usuário, histórico recente, FAQ, contexto externo,
+- [x] Entradas: bloco do usuário, histórico recente, FAQ, contexto externo,
   dados do colaborador
-- [ ] Resposta passa pelos guards (anti-loop) antes do envio
+- [x] Resposta passa pelos guards (anti-loop) antes do envio
 
 ### Testes
-- [ ] Fallback example/custom para prompts e knowledge
-- [ ] HMAC do GitHub: assinatura válida aceita, inválida → 401 + log
-- [ ] Cache: expirado → refetch; falha de rede → cache velho
+- [x] Fallback example/custom para prompts e knowledge
+- [x] HMAC do GitHub: assinatura válida aceita, inválida → 401 + log
+- [x] Cache: expirado → refetch; falha de rede → cache velho
 
 ### Validação
 - Pergunta coberta pelo FAQ → resposta correta e curta
@@ -869,6 +869,54 @@ prompts/faq.example.md
 ### Critério de conclusão
 - FAQ responde só o que tem suporte no material; contexto externo é opcional e
   atualizável; customização local nunca vai para o git.
+
+### Notas de execução (2026-09-04)
+
+Três decisões do mantenedor, todas na direção mais completa.
+
+**1. Dois passos, com agente de FAQ dedicado.** Consequência que mudou o
+contrato da fase 5: `answerFaq` deixou de carregar `{ answer }` e virou **sinal
+de roteamento** — quem redige é `logic/faqAgent.ts`, com a base à frente. A
+triagem também deixou de carregar a base inteira em toda mensagem.
+
+**2. Contexto externo agora.** `services/context.ts` com cache em
+`context_cache` (10 min), `plugins/rawBody.ts` preservando o corpo bruto e
+`routes/github.ts` validando HMAC. O raw body será reaproveitado pelo webhook do
+Jira na fase 10.
+
+**3. Quinta ação `acknowledge`** — o `no-tool-call` do "beleza" virou ação de
+verdade. **O claude.md §7 foi editado** com o motivo e um "não remover", senão
+uma sessão futura apaga achando que foi invenção.
+
+**Decisões de segurança tomadas na implementação:**
+- **`crypto.timingSafeEqual`, não `===`.** Comparar assinatura byte a byte com
+  retorno antecipado vaza, pelo tempo de resposta, quanto de uma assinatura
+  forjada estava correto — o bastante para reconstruí-la aos poucos. O guard de
+  comprimento vem antes porque `timingSafeEqual` lança quando os tamanhos
+  diferem, e isso seria outro vazamento.
+- **A rota do GitHub só é montada se o secret existir.** Um endpoint de refresh
+  sem autenticação é um jeito grátis de fazer o servidor buscar uma URL em loop.
+- **O corpo de uma requisição que falhou autenticação nunca vai para o log.**
+- **`acknowledge` limitado a 200 caracteres**, para não virar canal de resposta
+  livre contornando o contrato do §8.
+- **Falha de rede serve o cache velho**: um aviso desatualizado é melhor que
+  derrubar a resposta.
+
+**Validado — 201 testes verdes e ponta a ponta com IA real:**
+- **Pergunta coberta**: "como faço para trocar a senha da rede" → `answerFaq` →
+  o agente devolveu o procedimento exato da base, tratando a colaboradora pelo
+  nome.
+- **Pergunta fora do material**: "procedimento para reembolso de viagem" →
+  `answered: false` → **"Não encontrei isso no material que tenho aqui. Quer que
+  eu abra um chamado?"**. Não inventou.
+- **Contexto externo com prioridade**: "consigo fazer lançamento no VIC agora"
+  → respondeu com o aviso de manutenção, que **não está no FAQ**.
+- **Conversa fiada**: "beleza obrigado" → `acknowledge` → "De nada, Ana!
+  Qualquer coisa, estou por aqui." O erro da fase 5 sumiu.
+- **HMAC**: assinatura válida → 200 e refetch; inválida, replay com corpo
+  alterado, e ausência de header → 401, com três rejeições registradas.
+- **Regressão do raw body**: o webhook do WhatsApp continua recebendo
+  `request.body` parseado; JSON malformado ainda responde 400.
 
 ---
 
@@ -1249,7 +1297,7 @@ sem nada do ambiente do mantenedor (claude.md §1, §9).
 
 Funcionalidade (testável de ponta a ponta):
 - [x] Recebe mensagens do WhatsApp e identifica ou cadastra o colaborador (fase 4)
-- [ ] Responde FAQ com base no material, sem inventar
+- [x] Responde FAQ com base no material, sem inventar (fase 6)
 - [ ] Abre ticket no Jira com confirmação, dados do colaborador e anexos
 - [ ] Consulta e notifica status de chamado
 - [ ] Áudio em PT transcrito localmente; imagem vai ao modelo e ao chamado
@@ -1303,16 +1351,17 @@ fase correspondente:
 
 ## Próximo passo (atualizado em 2026-09-04)
 
-Fases 0 a 5 concluídas. O agente agora **decide**.
+Fases 0 a 6 concluídas. O agente responde com a base de conhecimento e admite
+quando não sabe.
 
-Pendência para o mantenedor: pôr a chave do Google AI Studio em `AI_API_KEY`
-(aistudio.google.com/apikey) e validar com WhatsApp real — as quatro ações foram
-testadas contra um provedor falso, mas nunca contra o Gemini de verdade.
+Pendência para o mantenedor: pôr o conteúdo real em `knowledge/faq.md` — hoje
+roda com o exemplo genérico. E, se quiser os avisos do momento, criar o
+repositório do markdown e preencher `CONTEXT_MD_URL` e `GITHUB_WEBHOOK_SECRET`.
 
-Próxima: **fase 6 — agente de FAQ e contexto externo**. A entrada de base de
-conhecimento já existe no prompt de triagem, mas chega vazia: falta
-`knowledge/faq.example.md`, o carregamento com fallback e o MD de contexto
-externo por URL com cache.
+Próxima: **fase 7 — agente de ticket e criação no Jira**. Hoje
+`collectTicketData` apenas devolve a pergunta do modelo; falta a coleta guiada
+com estado em `partial_data`, o resumo para confirmação antes de criar, e a
+criação de fato via REST v3 com idempotência.
 
 ### Ambiente do mantenedor (funcionando)
 - Supabase `bwemqvwulovzhgjhwrmv` via session pooler; migrations aplicadas.

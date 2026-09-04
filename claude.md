@@ -295,11 +295,27 @@ quer evitar.
 
 ### Triagem
 
-Uma chamada de IA com tool use decide entre:
-`answerFaq` · `collectTicketData` · `checkTicketStatus` · `escalateToHuman`
+Uma chamada de IA com tool use decide entre **cinco** ações:
+`answerFaq` · `acknowledge` · `collectTicketData` · `checkTicketStatus` ·
+`escalateToHuman`
 
-O prompt recebe: histórico recente da conversa, base de FAQ, MD de contexto
-externo, dados do colaborador e estado atual.
+**`acknowledge` foi acrescentada na fase 6, não é invenção — não remover.**
+Motivo: em uso real, "beleza" e "obrigado" não se encaixavam em nenhuma das
+quatro originais, o modelo respondia em texto livre e a validação recusava
+(corretamente), entregando ao colaborador uma mensagem de erro. Cobre mensagens
+que não pedem ação; o texto vem do modelo mas é limitado a 200 caracteres, para
+não virar canal de resposta livre contornando o contrato.
+
+**`answerFaq` só roteia, não carrega a resposta.** Quem redige é um segundo
+agente (`logic/faqAgent.ts`), com a base de conhecimento à frente e uma
+instrução única: responder apenas com base no material, ou devolver
+`answered: false`. Fazer a triagem escrever a resposta seria o mesmo trabalho
+duas vezes sobre o mesmo material, e um prompt que classifica *e* responde erra
+mais que dois prompts focados.
+
+O prompt de triagem recebe: histórico recente da conversa, dados do colaborador
+e estado atual. A base de FAQ e o MD de contexto externo vão para o agente de
+FAQ, não para a triagem.
 
 ### Abertura de ticket
 
@@ -462,9 +478,10 @@ JIRA_API_TOKEN=
 JIRA_PROJECT_KEY=
 JIRA_WEBHOOK_SECRET=
 
-# External context (optional)
-CONTEXT_MD_URL=
-GITHUB_WEBHOOK_SECRET=
+# External context (optional) - avisos do momento, sem redeploy
+CONTEXT_MD_URL=              # raw (repo público) ou Contents API (privado)
+CONTEXT_MD_TOKEN=            # só para repo privado; fine-grained, Contents:read
+GITHUB_WEBHOOK_SECRET=       # sem ele a rota /webhook/github nem é montada
 
 # Behavior
 DEBOUNCE_SECONDS=10

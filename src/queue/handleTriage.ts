@@ -10,8 +10,14 @@ import {
   SUMMARY_PROMPT,
   type HistorySummary,
 } from "../logic/history.js";
+import {
+  buildFaqInput,
+  buildFaqToolDeclaration,
+  interpretFaqCompletion,
+} from "../logic/faqAgent.js";
 import type { Employee } from "../logic/onboarding.js";
-import { buildTriageInput, interpretCompletion } from "../logic/triage.js";
+import { buildTriageInput, interpretCompletion, type HistoryEntry } from "../logic/triage.js";
+import { getExternalContext } from "../services/context.js";
 import type { StoredConversation } from "../db/queries.js";
 import { buildToolDeclarations } from "../types/actions.js";
 import type { Action } from "../types/actions.js";
@@ -26,6 +32,9 @@ const NEUTRAL_FALLBACK =
   "Desculpe, não consegui entender. Pode explicar de outro jeito?";
 const TECHNICAL_FALLBACK =
   "Estou com uma dificuldade técnica no momento. Já vou verificar e retorno em seguida.";
+// Saying "I don't know" is a good outcome; inventing a procedure is not.
+const NOT_COVERED_FALLBACK =
+  "Não encontrei isso no material que tenho aqui. Quer que eu abra um chamado para o suporte olhar?";
 
 export interface TriageOutcome {
   reply: string | null;
@@ -92,19 +101,31 @@ export async function runTriage(
   }
 
   ctx.log.info({ ...meta, action: decision.action.name }, "triage decided");
-  return executeAction(ctx, phone, decision.action, meta);
+  return executeAction(
+    ctx,
+    { phone, employee, history: plan.recent, meta },
+    decision.action,
+  );
+}
+
+interface ActionContext {
+  phone: string;
+  employee: Employee;
+  history: readonly HistoryEntry[];
+  meta: Record<string, unknown>;
 }
 
 async function executeAction(
   ctx: AppContext,
-  phone: string,
+  { phone, employee, history, meta }: ActionContext,
   action: Action,
-  meta: Record<string, unknown>,
 ): Promise<TriageOutcome> {
   switch (action.name) {
     case "answerFaq":
-      // Phase 6 puts the knowledge base into the prompt behind this answer.
-      return { reply: action.input.answer };
+      return answerFromKnowledgeBase(ctx, employee, history, meta);
+
+    case "acknowledge":
+      return { reply: action.input.reply };
 
     case "collectTicketData": {
       const tickets = await countRecentTickets(ctx.pool, phone, TICKET_WINDOW_HOURS);
@@ -135,6 +156,62 @@ async function executeAction(
           "Certo, vou pedir para uma pessoa do suporte falar com você. Assim que possível alguém retorna por aqui.",
       };
   }
+}
+
+/**
+ * Second step: the FAQ agent answers with the knowledge base in front of it.
+ *
+ * Triage only routed here; the answer is written by a prompt whose single job
+ * is to answer from the material, which is why it can be strict about not
+ * inventing one (claude.md §7).
+ */
+async function answerFromKnowledgeBase(
+  ctx: AppContext,
+  employee: Employee,
+  history: readonly HistoryEntry[],
+  meta: Record<string, unknown>,
+): Promise<TriageOutcome> {
+  const question = history[history.length - 1]?.text ?? "";
+  const externalContext = await getExternalContext(
+    ctx.pool,
+    ctx.env.CONTEXT_MD_URL,
+    ctx.log,
+    ctx.env.CONTEXT_MD_TOKEN,
+  );
+
+  const { system, messages } = buildFaqInput(ctx.faqPrompt, {
+    employee,
+    question,
+    // The last turn is the question itself, already passed above.
+    history: history.slice(0, -1),
+    faq: ctx.knowledgeBase,
+    externalContext,
+  });
+
+  let completion;
+  try {
+    completion = await withRetry(
+      () => ctx.ai.complete({ system, messages, tools: [buildFaqToolDeclaration()] }),
+      { log: ctx.log, meta, operation: "faqAnswer" },
+    );
+  } catch (error) {
+    ctx.log.error({ ...meta, err: error }, "faq agent failed");
+    return { reply: TECHNICAL_FALLBACK };
+  }
+
+  const result = interpretFaqCompletion(completion);
+
+  if (result.kind === "rejected") {
+    ctx.log.warn({ ...meta, reason: result.reason }, "faq output rejected");
+    return { reply: NEUTRAL_FALLBACK };
+  }
+
+  if (result.kind === "not-covered") {
+    ctx.log.info(meta, "question not covered by the knowledge base");
+    return { reply: NOT_COVERED_FALLBACK };
+  }
+
+  return { reply: result.text };
 }
 
 /** Folds older turns into the running summary so cost stops growing. */

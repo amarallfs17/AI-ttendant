@@ -33,9 +33,33 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(["gemini", "claude"]).default("gemini"),
   AI_API_KEY: z.string().min(1),
   AI_MODEL: z.string().min(1).default("gemini-3.8-flash"),
+
+  // Optional: current reminders the agent should know about, fetched from a raw
+  // markdown URL. Unset means the feature is simply off.
+  CONTEXT_MD_URL: z.url({ protocol: /^https?$/ }).optional(),
+  // Needed only when CONTEXT_MD_URL points at a private repository: an
+  // anonymous request gets 404 there, not 403.
+  CONTEXT_MD_TOKEN: z.string().min(1).optional(),
+  // Only when the GitHub webhook is used; without it the route is not mounted.
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * In a `.env` file, `VAR=` means "not set" — that is how anyone writes an
+ * optional variable they are not using. Zod sees an empty string instead, so an
+ * optional field would reject it and the process would refuse to boot over a
+ * variable nobody wanted. Dropping the blanks makes the file mean what it looks
+ * like it means.
+ */
+function withoutBlanks(
+  source: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value?.trim() !== ""),
+  );
+}
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const result = envSchema
@@ -46,7 +70,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
         message: "must be greater than or equal to DEBOUNCE_SECONDS",
       },
     )
-    .safeParse(source);
+    .safeParse(withoutBlanks(source));
   if (result.success) {
     return result.data;
   }
